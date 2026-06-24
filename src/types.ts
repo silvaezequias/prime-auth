@@ -26,6 +26,27 @@ export interface PrimeAuthConfig {
   cookieMaxAge?: number
 }
 
+export interface ExpressRouterOptions {
+  /** Para onde redirecionar após login bem-sucedido. @default '/' */
+  successRedirect?: string
+  /** Para onde redirecionar em caso de erro. @default '/auth/login' */
+  errorRedirect?: string
+  /** Path da rota de login. @default '/auth/login' */
+  loginPath?: string
+  /** Callback chamado após login bem-sucedido (server-side). */
+  onSuccess?: (user: AuthenticatedUser, req: unknown, res: unknown) => void | Promise<void>
+}
+
+export interface ExpressRequireAuthOptions {
+  /**
+   * Se `true`, retorna JSON 401 em vez de redirecionar.
+   * @default false
+   */
+  json?: boolean
+  /** Escopos obrigatórios. Retorna 403 se o token não tiver todos. */
+  scopes?: string[]
+}
+
 export interface NextHandlersOptions {
   /** Para onde redirecionar após login bem-sucedido. @default '/' */
   successRedirect?: string

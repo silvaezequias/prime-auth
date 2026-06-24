@@ -1,5 +1,5 @@
-export { P as PrimeAuth } from './client-D88tXlAH.js';
-export { A as AuthenticatedUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, a as TokenSet, U as UserInfo } from './types-CGwq3iVS.js';
+export { P as PrimeAuth } from './client-BkdewWL6.js';
+export { A as AuthenticatedUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, b as TokenSet, U as UserInfo } from './types-CK3Pypy4.js';
 
 /** Gera um code_verifier aleatório para PKCE */
 declare function generateCodeVerifier(): string;

@@ -1,6 +1,6 @@
 {
   "name": "prime-auth",
-  "version": "3.0.0",
+  "version": "1.0.0",
   "description": "OAuth2 client library for Next.js + Autenticação Prime server",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -20,14 +20,19 @@
       "types": "./dist/next/client.d.ts",
       "import": "./dist/next/client.mjs",
       "require": "./dist/next/client.js"
+    },
+    "./express": {
+      "types": "./dist/express/index.d.ts",
+      "import": "./dist/express/index.mjs",
+      "require": "./dist/express/index.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/next/index.ts src/next/client.tsx --format cjs,esm --dts --clean",
-    "dev": "tsup src/index.ts src/next/index.ts src/next/client.tsx --format cjs,esm --dts --watch",
+    "build": "tsup src/index.ts src/next/index.ts src/next/client.tsx src/express/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts src/next/index.ts src/next/client.tsx src/express/index.ts --format cjs,esm --dts --watch",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
@@ -41,8 +46,10 @@
     "jose": "^5.9.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^20.17.0",
     "@types/react": "^18.3.31",
+    "express": "^5.2.1",
     "next": "^14.2.35",
     "react": "^18.3.1",
     "tsup": "^8.3.5",
@@ -50,14 +57,14 @@
   },
   "peerDependencies": {
     "next": ">=13.0.0",
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "express": ">=4.0.0",
+    "cookie-parser": ">=1.4.0"
   },
   "peerDependenciesMeta": {
-    "next": {
-      "optional": false
-    },
-    "react": {
-      "optional": false
-    }
+    "next": { "optional": true },
+    "react": { "optional": true },
+    "express": { "optional": true },
+    "cookie-parser": { "optional": true }
   }
 }

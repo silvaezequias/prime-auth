@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { P as PrimeAuth } from '../client-D88tXlAH.js';
-import { N as NextHandlersOptions, A as AuthenticatedUser, M as MiddlewareOptions } from '../types-CGwq3iVS.js';
-export { P as PrimeAuthConfig, S as SessionData, T as TokenPayload, a as TokenSet, U as UserInfo } from '../types-CGwq3iVS.js';
+import { P as PrimeAuth } from '../client-BkdewWL6.js';
+import { N as NextHandlersOptions, A as AuthenticatedUser, M as MiddlewareOptions } from '../types-CK3Pypy4.js';
+export { P as PrimeAuthConfig, S as SessionData, T as TokenPayload, b as TokenSet, U as UserInfo } from '../types-CK3Pypy4.js';
 
 /**
  * Cria um único Route Handler que serve todas as rotas OAuth2.
