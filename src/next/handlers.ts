@@ -3,19 +3,10 @@ import { NextResponse } from 'next/server'
 import { PrimeAuth } from '../client.js'
 import { NextHandlersOptions, AuthenticatedUser } from '../types.js'
 import { encodeSession, decodeSession } from '../session.js'
+import { log } from '../logger.js'
 
-// ─── Catch-all handler (recomendado) ─────────────────────────────────────────
+// ─── Catch-all handler ────────────────────────────────────────────────────────
 
-/**
- * Cria um único Route Handler que serve todas as rotas OAuth2.
- * Use em `app/auth/[...prime]/route.ts`.
- *
- * Rotas criadas automaticamente:
- *  GET /auth/login    → redireciona para o servidor de autenticação
- *  GET /auth/callback → troca o code por tokens e salva a sessão
- *  GET /auth/logout   → apaga a sessão
- *  GET /auth/me       → retorna o usuário atual em JSON
- */
 export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
   const { GET: loginGET }    = createLoginHandler(auth)
   const { GET: callbackGET } = createCallbackHandler(auth, opts)
@@ -24,12 +15,14 @@ export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) 
 
   async function GET(request: NextRequest) {
     const action = request.nextUrl.pathname.split('/').at(-1)
+    log('debug', `[next] Route handler acionado.`, { action, pathname: request.nextUrl.pathname })
     switch (action) {
       case 'login':    return loginGET(request)
       case 'callback': return callbackGET(request)
       case 'logout':   return logoutGET(request)
       case 'me':       return meGET(request)
       default:
+        log('warn', `[next] Rota não reconhecida no catch-all.`, { pathname: request.nextUrl.pathname })
         return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
   }
@@ -37,79 +30,32 @@ export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) 
   return { GET }
 }
 
-// ─── Handlers individuais ─────────────────────────────────────────────────────
+// ─── Login ────────────────────────────────────────────────────────────────────
 
-/**
- * Handler para a rota de login.
- * Redireciona o usuário para o servidor de autenticação.
- *
- * @example
- * // app/auth/login/route.ts
- * import { createLoginHandler } from 'prime-auth/next'
- * import { auth } from '@/lib/auth'
- * export const { GET } = createLoginHandler(auth)
- */
 export function createLoginHandler(auth: PrimeAuth) {
   const isProduction = process.env['NODE_ENV'] === 'production'
 
   function GET(request: NextRequest) {
     const returnTo = request.nextUrl.searchParams.get('returnTo')
+    log('info', '[next] Iniciando fluxo de login.', { returnTo: returnTo ?? undefined })
+
     const { url, state } = auth.getAuthorizationUrl()
     const res = NextResponse.redirect(url)
 
-    res.cookies.set('_pa_state', state, {
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 600,
-      secure: isProduction,
-      path: '/',
-    })
-
+    res.cookies.set('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure: isProduction, path: '/' })
     if (returnTo) {
-      res.cookies.set('_pa_return', returnTo, {
-        httpOnly: true,
-        sameSite: 'lax',
-        maxAge: 600,
-        secure: isProduction,
-        path: '/',
-      })
+      res.cookies.set('_pa_return', returnTo, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure: isProduction, path: '/' })
     }
 
+    log('debug', '[next] Redirecionando para o servidor de autenticação.', { url })
     return res
   }
 
   return { GET }
 }
 
-/**
- * Handler para a rota de callback OAuth2.
- *
- * Recebe o `code` enviado pelo servidor após o login, troca pelo par
- * access_token/refresh_token, busca os dados do usuário e salva a sessão
- * em um cookie httpOnly assinado.
- *
- * Parâmetros de query recebidos pelo servidor:
- *  - `code`  → authorization code (obrigatório)
- *  - `state` → valor anti-CSRF para validar (deve coincidir com o cookie `_pa_state`)
- *  - `error` + `error_description` → em caso de recusa/erro no servidor
- *
- * @example
- * // app/auth/callback/route.ts
- * import { createCallbackHandler } from 'prime-auth/next'
- * import { auth } from '@/lib/auth'
- *
- * export const { GET } = createCallbackHandler(auth, {
- *   successRedirect: '/dashboard',
- *   onSuccess: async (user) => {
- *     // Salve ou atualize o usuário no seu banco de dados
- *     await db.user.upsert({
- *       where: { sub: user.sub },
- *       update: { name: user.name, email: user.email, avatar: user.avatar },
- *       create: { sub: user.sub, name: user.name, email: user.email, avatar: user.avatar },
- *     })
- *   },
- * })
- */
+// ─── Callback ─────────────────────────────────────────────────────────────────
+
 export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
   const successRedirect = opts.successRedirect ?? '/'
   const errorRedirect   = opts.errorRedirect   ?? '/auth/login'
@@ -122,39 +68,44 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
     const error     = searchParams.get('error')
     const errorDesc = searchParams.get('error_description')
 
-    // O servidor recusou ou o usuário cancelou o login
+    log('info', '[next] Callback OAuth2 recebido.', { hasCode: !!code, hasState: !!state, error: error ?? undefined })
+
     if (error) {
-      console.error('[prime-auth] Servidor retornou erro:', error, errorDesc)
-      return NextResponse.redirect(
-        new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url),
-      )
+      log('error', `[next] Servidor de autenticação retornou erro no callback. Verifique as configurações da aplicação no painel.`, {
+        error,
+        description: errorDesc,
+      })
+      return NextResponse.redirect(new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url))
     }
 
     if (!code) {
-      return NextResponse.redirect(
-        new URL(`${errorRedirect}?error=missing_code`, request.url),
-      )
+      log('error', '[next] Callback recebido sem o parâmetro "code". O servidor deveria ter enviado o authorization code.')
+      return NextResponse.redirect(new URL(`${errorRedirect}?error=missing_code`, request.url))
     }
 
-    // Valida o state para prevenir CSRF
     const savedState = request.cookies.get('_pa_state')?.value
+    const returnTo   = request.cookies.get('_pa_return')?.value
+
     if (savedState && state !== savedState) {
-      return NextResponse.redirect(
-        new URL(`${errorRedirect}?error=state_mismatch`, request.url),
-      )
+      log('warn', '[next] State CSRF não confere. A requisição pode ter sido interceptada ou o cookie expirou.', {
+        expected: savedState,
+        received: state,
+      })
+      return NextResponse.redirect(new URL(`${errorRedirect}?error=state_mismatch`, request.url))
     }
 
-    const returnTo = request.cookies.get('_pa_return')?.value
+    if (!savedState) {
+      log('warn', '[next] Cookie de state não encontrado. Pode ter expirado (10 min) ou o navegador bloqueou cookies.')
+    }
 
     let user: AuthenticatedUser
     try {
-      // 1. Troca o code pelo par de tokens
+      log('info', '[next] Trocando authorization code por tokens...')
       const tokenSet = await auth.exchangeCode(code)
 
-      // 2. Busca os dados do usuário (nome, e-mail, avatar, etc.)
+      log('info', '[next] Buscando dados do usuário...')
       user = await auth.getUserInfo(tokenSet.access_token)
 
-      // 3. Salva a sessão em cookie httpOnly assinado
       const session = encodeSession({
         accessToken:  tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
@@ -165,46 +116,45 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
       const res = NextResponse.redirect(new URL(redirectTo, request.url))
 
       res.cookies.set(auth.cookieName, session, {
-        httpOnly: true,
-        sameSite: 'lax',
-        maxAge: auth.cookieMaxAge,
-        secure: isProduction,
-        path: '/',
+        httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure: isProduction, path: '/',
       })
       res.cookies.delete('_pa_state')
       res.cookies.delete('_pa_return')
 
-      // 4. Hook opcional — use para salvar o usuário no banco de dados
+      log('info', '[next] Login concluído com sucesso. Redirecionando.', {
+        user: user.sub,
+        username: user.username,
+        redirectTo,
+      })
+
       if (opts.onSuccess) {
+        log('debug', '[next] Executando callback onSuccess...')
         const result = await opts.onSuccess(user)
-        if (result === false) return res
+        if (result === false) {
+          log('debug', '[next] onSuccess retornou false — redirect assumido pelo callback.')
+          return res
+        }
       }
 
       return res
     } catch (err) {
-      console.error('[prime-auth] Erro no callback:', err)
-      return NextResponse.redirect(
-        new URL(`${errorRedirect}?error=callback_failed`, request.url),
-      )
+      log('error', '[next] Falha ao processar callback OAuth2. Verifique as credenciais e se o servidor está acessível.', {
+        error: String(err),
+        serverUrl: auth.serverUrl,
+      })
+      return NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url))
     }
   }
 
   return { GET }
 }
 
-/**
- * Handler para a rota de logout.
- * Apaga o cookie de sessão e redireciona para `/auth/login`.
- *
- * @example
- * // app/auth/logout/route.ts
- * import { createLogoutHandler } from 'prime-auth/next'
- * import { auth } from '@/lib/auth'
- * export const { GET } = createLogoutHandler(auth)
- */
+// ─── Logout ───────────────────────────────────────────────────────────────────
+
 export function createLogoutHandler(auth: PrimeAuth, opts: { redirectTo?: string } = {}) {
   function GET(request: NextRequest) {
     const redirectTo = opts.redirectTo ?? '/auth/login'
+    log('info', '[next] Usuário deslogado. Sessão encerrada.', { redirectTo })
     const res = NextResponse.redirect(new URL(redirectTo, request.url))
     res.cookies.delete(auth.cookieName)
     return res
@@ -212,28 +162,35 @@ export function createLogoutHandler(auth: PrimeAuth, opts: { redirectTo?: string
   return { GET }
 }
 
-/**
- * Handler para a rota `/auth/me`.
- * Retorna o usuário atual em JSON — usado pelo `UserFetchProvider` em Client Components.
- *
- * @example
- * // app/auth/me/route.ts
- * import { createMeHandler } from 'prime-auth/next'
- * import { auth } from '@/lib/auth'
- * export const { GET } = createMeHandler(auth)
- */
+// ─── Me ───────────────────────────────────────────────────────────────────────
+
 export function createMeHandler(auth: PrimeAuth) {
   async function GET(request: NextRequest) {
+    log('debug', '[next] /auth/me — verificando sessão do usuário.')
+
     const cookie = request.cookies.get(auth.cookieName)?.value
-    if (!cookie) return NextResponse.json(null)
+    if (!cookie) {
+      log('debug', '[next] /auth/me — nenhum cookie de sessão encontrado. Retornando null.')
+      return NextResponse.json(null)
+    }
 
     const session = decodeSession(cookie, auth.clientSecret)
-    if (!session || Date.now() >= session.expiresAt) return NextResponse.json(null)
+    if (!session) {
+      log('warn', '[next] /auth/me — cookie de sessão presente mas inválido. Pode ter sido adulterado.')
+      return NextResponse.json(null)
+    }
+
+    if (Date.now() >= session.expiresAt) {
+      log('warn', '[next] /auth/me — sessão expirada.', { expiredAt: new Date(session.expiresAt).toISOString() })
+      return NextResponse.json(null)
+    }
 
     try {
       const user = await auth.getUserInfo(session.accessToken)
+      log('debug', '[next] /auth/me — usuário retornado.', { sub: user.sub })
       return NextResponse.json(user)
-    } catch {
+    } catch (err) {
+      log('error', '[next] /auth/me — falha ao buscar dados do usuário com o access token salvo.', { error: String(err) })
       return NextResponse.json(null)
     }
   }

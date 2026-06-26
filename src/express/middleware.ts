@@ -1,6 +1,10 @@
 import { Request, Response, NextFunction } from 'express'
+import { PrimeAuth } from '../client.js'
+import { ExpressRequireAuthOptions, AuthenticatedUser } from '../types.js'
+import { decodeSession, encodeSession } from '../session.js'
+import { InsufficientScopeError } from '../errors.js'
+import { log } from '../logger.js'
 
-// Augmenta o tipo Request do Express para incluir req.user
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -9,34 +13,7 @@ declare global {
     }
   }
 }
-import { PrimeAuth } from '../client.js'
-import { ExpressRequireAuthOptions, AuthenticatedUser, SessionData } from '../types.js'
-import { decodeSession, encodeSession } from '../session.js'
-import { InsufficientScopeError } from '../errors.js'
 
-/**
- * Middleware Express que protege rotas. Lê o cookie de sessão, verifica
- * (e renova se necessário) o access token e popula `req.user`.
- *
- * Requer `cookie-parser` montado antes: `app.use(cookieParser())`
- *
- * @example
- * import { requireAuth } from 'prime-auth/express'
- * import { auth } from './lib/auth'
- *
- * // Rota protegida — redireciona para /auth/login se não logado
- * app.get('/dashboard', requireAuth(auth), (req, res) => {
- *   res.json(req.user)
- * })
- *
- * // Modo API — retorna JSON 401 em vez de redirecionar
- * app.get('/api/me', requireAuth(auth, { json: true }), (req, res) => {
- *   res.json(req.user)
- * })
- *
- * // Exige escopos específicos
- * app.get('/api/profile', requireAuth(auth, { scopes: ['profile', 'email'] }), handler)
- */
 export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {}) {
   const loginPath    = '/auth/login'
   const isProduction = process.env['NODE_ENV'] === 'production'
@@ -45,19 +22,38 @@ export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {
     const raw = req.cookies?.[auth.cookieName] as string | undefined
 
     const fail = (code: string, message: string, status = 401) => {
-      if (opts.json) return res.status(status).json({ error: code, error_description: message })
+      if (opts.json) {
+        log('warn', `[express:requireAuth] Acesso negado (${status}).`, { code, path: req.path })
+        return res.status(status).json({ error: code, error_description: message })
+      }
       const returnTo = encodeURIComponent(req.originalUrl ?? '/')
+      log('warn', `[express:requireAuth] Acesso negado — redirecionando para login.`, { code, path: req.path, returnTo: req.originalUrl })
       res.redirect(`${loginPath}?returnTo=${returnTo}`)
     }
 
-    if (!raw) return fail('unauthenticated', 'Sessão não encontrada.')
+    if (!raw) {
+      log('debug', `[express:requireAuth] Nenhum cookie de sessão encontrado.`, { path: req.path })
+      return fail('unauthenticated', 'Sessão não encontrada.')
+    }
 
     let session = decodeSession(raw, auth.clientSecret)
-    if (!session) return fail('invalid_session', 'Sessão inválida.')
+    if (!session) {
+      log('warn', `[express:requireAuth] Cookie de sessão inválido ou adulterado.`, { path: req.path })
+      return fail('invalid_session', 'Sessão inválida.')
+    }
 
-    // Renova o access token automaticamente (margem de 60s)
+    // Renovação automática (margem de 60s)
     if (Date.now() >= session.expiresAt - 60_000) {
-      if (!session.refreshToken) return fail('session_expired', 'Sessão expirada.')
+      if (!session.refreshToken) {
+        log('warn', '[express:requireAuth] Sessão expirada e sem refresh token. Usuário precisará fazer login novamente.', {
+          path: req.path,
+          expiredAt: new Date(session.expiresAt).toISOString(),
+        })
+        res.clearCookie(auth.cookieName)
+        return fail('session_expired', 'Sessão expirada.')
+      }
+
+      log('info', '[express:requireAuth] Access token prestes a expirar. Renovando automaticamente...')
       try {
         const tokenSet = await auth.refreshToken(session.refreshToken)
         session = {
@@ -66,12 +62,11 @@ export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {
           expiresAt:    tokenSet.expires_at,
         }
         res.cookie(auth.cookieName, encodeSession(session, auth.clientSecret), {
-          httpOnly: true,
-          sameSite: 'lax',
-          maxAge:   auth.cookieMaxAge * 1000,
-          secure:   isProduction,
+          httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge * 1000, secure: isProduction,
         })
-      } catch {
+        log('info', '[express:requireAuth] Token renovado com sucesso.')
+      } catch (err) {
+        log('error', '[express:requireAuth] Falha ao renovar token. Encerrando sessão.', { error: String(err) })
         res.clearCookie(auth.cookieName)
         return fail('session_expired', 'Sessão expirada.')
       }
@@ -80,7 +75,11 @@ export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {
     let user: AuthenticatedUser
     try {
       user = await auth.getUserInfo(session.accessToken)
-    } catch {
+    } catch (err) {
+      log('error', '[express:requireAuth] Falha ao buscar dados do usuário. O access token pode ter sido revogado.', {
+        path: req.path,
+        error: String(err),
+      })
       res.clearCookie(auth.cookieName)
       return fail('invalid_token', 'Token inválido.')
     }
@@ -90,11 +89,18 @@ export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {
       const missing = opts.scopes.filter(s => !granted.includes(s))
       if (missing.length) {
         const e = new InsufficientScopeError(missing)
+        log('warn', '[express:requireAuth] Escopos insuficientes.', {
+          required: opts.scopes,
+          granted,
+          missing,
+          path: req.path,
+        })
         if (opts.json) return res.status(403).json({ error: e.code, error_description: e.message })
         return res.status(403).send(e.message)
       }
     }
 
+    log('debug', '[express:requireAuth] Acesso permitido.', { sub: user.sub, path: req.path })
     req.user = user
     next()
   }

@@ -1,89 +1,86 @@
 import { PrimeAuth } from '../client.js'
-import { AuthenticatedUser, SessionData } from '../types.js'
+import { AuthenticatedUser } from '../types.js'
 import { decodeSession, encodeSession } from '../session.js'
+import { log } from '../logger.js'
 
-/**
- * Retorna o usuário autenticado atual em um Server Component ou Route Handler.
- * Retorna `null` se não houver sessão válida.
- *
- * Renova o access token automaticamente se estiver expirado.
- *
- * @example
- * // app/dashboard/page.tsx
- * import { getUser } from 'prime-auth/next'
- * import { auth } from '@/lib/auth'
- *
- * export default async function Page() {
- *   const user = await getUser(auth)
- *   if (!user) redirect('/auth/login')
- *   return <h1>Olá, {user.name}</h1>
- * }
- */
 export async function getUser(auth: PrimeAuth): Promise<AuthenticatedUser | null> {
-  // cookies() é async no Next.js 15 e sync no 13/14
+  log('debug', '[next:server] getUser() — lendo sessão do cookie.')
+
   const cookieStore = await getCookies()
   const raw = cookieStore.get(auth.cookieName)?.value
-  if (!raw) return null
+
+  if (!raw) {
+    log('debug', '[next:server] getUser() — nenhum cookie de sessão encontrado.')
+    return null
+  }
 
   const session = decodeSession(raw, auth.clientSecret)
-  if (!session) return null
+  if (!session) {
+    log('warn', '[next:server] getUser() — cookie de sessão inválido. Possível adulteração ou clientSecret diferente.')
+    return null
+  }
 
-  // Tenta renovar se estiver prestes a expirar (margem de 60s)
-  let activeSession: SessionData = session
+  // Renova se estiver dentro da margem de 60s
   if (Date.now() >= session.expiresAt - 60_000) {
-    if (!session.refreshToken) return null
+    if (!session.refreshToken) {
+      log('warn', '[next:server] getUser() — sessão expirada e sem refresh token. Usuário precisará fazer login novamente.', {
+        expiredAt: new Date(session.expiresAt).toISOString(),
+      })
+      return null
+    }
+
+    log('info', '[next:server] getUser() — access token prestes a expirar. Renovando automaticamente...')
     try {
       const tokenSet = await auth.refreshToken(session.refreshToken)
-      activeSession = {
+      const newSession = {
         accessToken:  tokenSet.access_token,
         refreshToken: tokenSet.refresh_token ?? session.refreshToken,
         expiresAt:    tokenSet.expires_at,
       }
-      // Atualiza o cookie com o novo token
+
       const isProduction = process.env['NODE_ENV'] === 'production'
-      cookieStore.set(auth.cookieName, encodeSession(activeSession, auth.clientSecret), {
-        httpOnly: true,
-        sameSite: 'lax',
-        maxAge:   auth.cookieMaxAge,
-        secure:   isProduction,
-        path:     '/',
+      cookieStore.set(auth.cookieName, encodeSession(newSession, auth.clientSecret), {
+        httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure: isProduction, path: '/',
       })
-    } catch {
+
+      log('info', '[next:server] getUser() — token renovado com sucesso.')
+
+      try {
+        return await auth.getUserInfo(newSession.accessToken)
+      } catch (err) {
+        log('error', '[next:server] getUser() — token renovado mas falha ao buscar userinfo.', { error: String(err) })
+        return null
+      }
+    } catch (err) {
+      log('error', '[next:server] getUser() — falha ao renovar token. Usuário precisará fazer login novamente.', { error: String(err) })
       return null
     }
   }
 
   try {
-    return await auth.getUserInfo(activeSession.accessToken)
-  } catch {
+    const user = await auth.getUserInfo(session.accessToken)
+    log('debug', '[next:server] getUser() — usuário obtido com sucesso.', { sub: user.sub })
+    return user
+  } catch (err) {
+    log('error', '[next:server] getUser() — falha ao buscar dados do usuário. O access token pode ter sido revogado.', { error: String(err) })
     return null
   }
 }
 
-/**
- * Igual ao `getUser`, mas lança um redirect para `/auth/login` se não autenticado.
- * Use em páginas que exigem autenticação.
- *
- * @example
- * import { requireUser } from 'prime-auth/next'
- * import { auth } from '@/lib/auth'
- *
- * export default async function Page() {
- *   const user = await requireUser(auth) // redireciona se não logado
- *   return <h1>Olá, {user.name}</h1>
- * }
- */
 export async function requireUser(auth: PrimeAuth, loginPath = '/auth/login'): Promise<AuthenticatedUser> {
+  log('debug', '[next:server] requireUser() — verificando autenticação.')
   const { redirect } = await import('next/navigation')
   const user = await getUser(auth)
-  if (!user) redirect(loginPath)
+  if (!user) {
+    log('warn', '[next:server] requireUser() — usuário não autenticado. Redirecionando para login.', { loginPath })
+    redirect(loginPath)
+  }
+  log('debug', '[next:server] requireUser() — usuário autenticado.', { sub: (user as AuthenticatedUser).sub })
   return user as AuthenticatedUser
 }
 
-// Compatibilidade com Next.js 13, 14 e 15 (cookies() virou async no 15)
 async function getCookies() {
   const { cookies } = await import('next/headers')
-  // No Next.js 15, cookies() retorna uma Promise
   const result = cookies()
   return result instanceof Promise ? await result : result
 }
