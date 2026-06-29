@@ -9,7 +9,7 @@ Suporta **Next.js** (App Router) e **Express**. Configure apenas as credenciais 
 ## Instalação
 
 ```bash
-npm install prime-auth
+npm install git@github.com:silvaezequias/prime-auth.git
 ```
 
 ---
