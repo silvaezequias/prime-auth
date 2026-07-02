@@ -77,7 +77,7 @@ export class PrimeAuth {
       state,
       ...extra,
     })
-    const url = `${this._serverUrl}/oauth/authorize?${query}`
+    const url = `${this._serverUrl}/oauth/login?${query}`
     log('debug', 'URL de autorização gerada.', { url, scopes: this._scopes.join(' ') })
     return { url, state }
   }
