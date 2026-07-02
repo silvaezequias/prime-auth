@@ -168,7 +168,7 @@ var PrimeAuth = class {
       state,
       ...extra
     });
-    const url = `${this._serverUrl}/oauth/authorize?${query}`;
+    const url = `${this._serverUrl}/oauth/login?${query}`;
     log("debug", "URL de autoriza\xE7\xE3o gerada.", { url, scopes: this._scopes.join(" ") });
     return { url, state };
   }
