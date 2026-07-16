@@ -252,6 +252,23 @@ app.use(createRouter(auth, {
 }))
 ```
 
+### Usar o usuário em uma página HTML pura (sem framework)
+
+Para páginas HTML servidas pelo próprio Express (sem Next.js), use o cliente JS em [`examples/auth-client.js`](examples/auth-client.js), que consome o endpoint `GET /auth/me`:
+
+```html
+<script type="module">
+  import { getCurrentUser, redirectToLogin, logout } from '/auth-client.js'
+
+  const user = await getCurrentUser()
+  if (!user) {
+    redirectToLogin() // manda para /auth/login preservando a URL atual
+  } else {
+    document.querySelector('#nome').textContent = user.name
+  }
+</script>
+```
+
 ---
 
 ## O que está em `user` (igual nos dois frameworks)
