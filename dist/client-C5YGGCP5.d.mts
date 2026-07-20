@@ -1,4 +1,4 @@
-import { P as PrimeAuthConfig, b as TokenSet, A as AuthenticatedUser, T as TokenPayload } from './types-04ermxwR.mjs';
+import { P as PrimeAuthConfig, b as AppInfo, C as CompanyUser, c as TokenSet, A as AuthenticatedUser, T as TokenPayload } from './types-DaH4KbDC.mjs';
 
 declare class PrimeAuth {
     readonly cookieName: string;
@@ -10,6 +10,9 @@ declare class PrimeAuth {
     private readonly _scopes;
     private readonly _timeoutMs;
     private readonly _tenant;
+    private readonly _companyApiKey;
+    private _appInfoCache;
+    private _appInfoPromise;
     constructor(config: PrimeAuthConfig);
     get serverUrl(): string;
     get clientId(): string;
@@ -29,6 +32,29 @@ declare class PrimeAuth {
         url: string;
         state: string;
     };
+    /**
+     * Busca informações públicas da aplicação (nome, empresa, logos e o
+     * `tenantSlug` cadastrado, se houver) a partir do `clientId` configurado.
+     * Não requer autenticação. O resultado é cacheado em memória por alguns
+     * minutos para não bater na rede a cada chamada.
+     */
+    getAppInfo(): Promise<AppInfo>;
+    /**
+     * Lista usuários de todas as aplicações da empresa, usando a chave de API
+     * da empresa (`config.companyApiKey`) — não o `clientSecret` da aplicação.
+     * Útil quando a mesma empresa tem mais de um tenant/aplicação e você
+     * precisa reconhecer usuários independente de qual deles foi usado no login.
+     */
+    listCompanyUsers(opts?: {
+        limit?: number;
+        cursor?: string;
+    }): Promise<{
+        users: CompanyUser[];
+        nextCursor: string | null;
+    }>;
+    /** Busca um usuário específico (por `sub`) em qualquer aplicação da empresa. Retorna `null` se não encontrado. */
+    getCompanyUser(sub: string): Promise<CompanyUser | null>;
+    private _requireCompanyApiKey;
     exchangeCode(code: string, codeVerifier?: string): Promise<TokenSet>;
     refreshToken(refreshToken: string): Promise<TokenSet>;
     revokeToken(token: string, hint?: 'access_token' | 'refresh_token'): Promise<void>;

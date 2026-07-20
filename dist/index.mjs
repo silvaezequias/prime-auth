@@ -15,8 +15,11 @@ import {
 import { randomBytes } from "crypto";
 import { decodeJwt } from "jose";
 var DEFAULT_SCOPES = ["openid", "profile", "email"];
+var APP_INFO_CACHE_MS = 5 * 60 * 1e3;
 var PrimeAuth = class {
   constructor(config) {
+    this._appInfoCache = null;
+    this._appInfoPromise = null;
     const serverUrl = config.serverUrl ?? process.env["PRIME_AUTH_SERVER_URL"];
     if (!serverUrl) {
       log("error", "serverUrl n\xE3o configurado. Defina no construtor ou em PRIME_AUTH_SERVER_URL no .env.");
@@ -34,7 +37,7 @@ var PrimeAuth = class {
       log("error", "redirectUri n\xE3o informado. Defina a URI de redirecionamento registrada na aplica\xE7\xE3o.");
       throw new PrimeAuthError("redirectUri \xE9 obrigat\xF3rio.", "config_error");
     }
-    this._serverUrl = serverUrl.replace(/\/$/, "");
+    this._serverUrl = serverUrl.replace(/\/$/, "").replace(/\/api$/i, "");
     this._clientId = config.clientId;
     this.clientSecret = config.clientSecret;
     this._redirectUri = config.redirectUri;
@@ -43,6 +46,7 @@ var PrimeAuth = class {
     this.cookieName = config.cookieName ?? "prime_auth_session";
     this.cookieMaxAge = config.cookieMaxAge ?? 60 * 60 * 24 * 7;
     this._tenant = config.tenant;
+    this._companyApiKey = config.companyApiKey;
     log("info", "PrimeAuth inicializado.", {
       serverUrl: this._serverUrl,
       clientId: this._clientId,
@@ -98,6 +102,70 @@ var PrimeAuth = class {
     log("debug", "URL de autoriza\xE7\xE3o gerada.", { url, scopes: this._scopes.join(" ") });
     return { url, state };
   }
+  /**
+   * Busca informações públicas da aplicação (nome, empresa, logos e o
+   * `tenantSlug` cadastrado, se houver) a partir do `clientId` configurado.
+   * Não requer autenticação. O resultado é cacheado em memória por alguns
+   * minutos para não bater na rede a cada chamada.
+   */
+  async getAppInfo() {
+    const now = Date.now();
+    if (this._appInfoCache && this._appInfoCache.expiresAt > now) {
+      return this._appInfoCache.value;
+    }
+    if (this._appInfoPromise) return this._appInfoPromise;
+    this._appInfoPromise = (async () => {
+      log("debug", "Buscando informa\xE7\xF5es da aplica\xE7\xE3o em /api/oauth/app-info...");
+      try {
+        const query = new URLSearchParams({ client_id: this._clientId });
+        const info = await this._fetch(`${this._serverUrl}/api/oauth/app-info?${query}`);
+        this._appInfoCache = { value: info, expiresAt: now + APP_INFO_CACHE_MS };
+        log("debug", "Informa\xE7\xF5es da aplica\xE7\xE3o obtidas.", { appId: info.appId, tenantSlug: info.tenantSlug });
+        return info;
+      } catch (err) {
+        log("error", "Falha ao buscar informa\xE7\xF5es da aplica\xE7\xE3o.", { error: String(err) });
+        throw err;
+      } finally {
+        this._appInfoPromise = null;
+      }
+    })();
+    return this._appInfoPromise;
+  }
+  // ─── Company API (leitura de usuários entre aplicações) ───────────────────
+  /**
+   * Lista usuários de todas as aplicações da empresa, usando a chave de API
+   * da empresa (`config.companyApiKey`) — não o `clientSecret` da aplicação.
+   * Útil quando a mesma empresa tem mais de um tenant/aplicação e você
+   * precisa reconhecer usuários independente de qual deles foi usado no login.
+   */
+  async listCompanyUsers(opts) {
+    this._requireCompanyApiKey();
+    const query = new URLSearchParams();
+    if (opts?.limit) query.set("limit", String(opts.limit));
+    if (opts?.cursor) query.set("cursor", opts.cursor);
+    const qs = query.toString();
+    return this._fetch(`${this._serverUrl}/api/company/v1/users${qs ? `?${qs}` : ""}`, {
+      headers: { Authorization: `Bearer ${this._companyApiKey}` }
+    });
+  }
+  /** Busca um usuário específico (por `sub`) em qualquer aplicação da empresa. Retorna `null` se não encontrado. */
+  async getCompanyUser(sub) {
+    this._requireCompanyApiKey();
+    try {
+      return await this._fetch(`${this._serverUrl}/api/company/v1/users/${encodeURIComponent(sub)}`, {
+        headers: { Authorization: `Bearer ${this._companyApiKey}` }
+      });
+    } catch (err) {
+      if (err instanceof ServerError && err.status === 404) return null;
+      throw err;
+    }
+  }
+  _requireCompanyApiKey() {
+    if (!this._companyApiKey) {
+      log("error", "companyApiKey n\xE3o configurada. Defina em `new PrimeAuth({ companyApiKey: ... })`.");
+      throw new PrimeAuthError("companyApiKey n\xE3o configurada.", "config_error");
+    }
+  }
   // ─── Token Exchange ───────────────────────────────────────────────────────
   async exchangeCode(code, codeVerifier) {
     log("info", "Trocando authorization code por tokens...", { hasPKCE: !!codeVerifier });
@@ -145,7 +213,7 @@ var PrimeAuth = class {
   async revokeToken(token, hint = "access_token") {
     log("info", `Revogando ${hint}...`);
     try {
-      await this._fetch(`${this._serverUrl}/oauth/revoke`, {
+      await this._fetch(`${this._serverUrl}/api/oauth/revoke`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ token, token_type_hint: hint }).toString()
@@ -160,7 +228,7 @@ var PrimeAuth = class {
   async getUserInfo(accessToken) {
     log("debug", "Buscando informa\xE7\xF5es do usu\xE1rio em /oauth/userinfo...");
     try {
-      const info = await this._fetch(`${this._serverUrl}/oauth/userinfo`, {
+      const info = await this._fetch(`${this._serverUrl}/api/oauth/userinfo`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!info.sub) {
@@ -219,7 +287,7 @@ var PrimeAuth = class {
   }
   // ─── Privados ─────────────────────────────────────────────────────────────
   async _tokenRequest(body) {
-    const data = await this._fetch(`${this._serverUrl}/oauth/token`, {
+    const data = await this._fetch(`${this._serverUrl}/api/oauth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(body).toString()

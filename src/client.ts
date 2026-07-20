@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { decodeJwt } from 'jose'
 import {
-  PrimeAuthConfig, TokenSet, TokenPayload, UserInfo, AuthenticatedUser,
+  PrimeAuthConfig, TokenSet, TokenPayload, UserInfo, AuthenticatedUser, AppInfo, CompanyUser,
 } from './types.js'
 import {
   PrimeAuthError, InvalidTokenError, ServerError,
@@ -9,6 +9,7 @@ import {
 import { log } from './logger.js'
 
 const DEFAULT_SCOPES = ['openid', 'profile', 'email']
+const APP_INFO_CACHE_MS = 5 * 60 * 1000
 
 export class PrimeAuth {
   readonly cookieName: string
@@ -21,6 +22,9 @@ export class PrimeAuth {
   private readonly _scopes: string[]
   private readonly _timeoutMs: number
   private readonly _tenant: string | undefined
+  private readonly _companyApiKey: string | undefined
+  private _appInfoCache: { value: AppInfo; expiresAt: number } | null = null
+  private _appInfoPromise: Promise<AppInfo> | null = null
 
   constructor(config: PrimeAuthConfig) {
     const serverUrl = config.serverUrl ?? process.env['PRIME_AUTH_SERVER_URL']
@@ -42,7 +46,12 @@ export class PrimeAuth {
       throw new PrimeAuthError('redirectUri é obrigatório.', 'config_error')
     }
 
-    this._serverUrl    = serverUrl.replace(/\/$/, '')
+    // Normaliza a serverUrl removendo um "/api" final, se vier configurado
+    // (algumas instalações incluem esse sufixo). Internamente, páginas
+    // (/oauth/login, /oauth2/<tenant>) usam a URL "limpa", e chamadas de API
+    // (/api/oauth/token, /api/oauth/userinfo, ...) adicionam o prefixo /api
+    // explicitamente — assim funciona com ou sem o sufixo na env var.
+    this._serverUrl    = serverUrl.replace(/\/$/, '').replace(/\/api$/i, '')
     this._clientId     = config.clientId
     this.clientSecret  = config.clientSecret
     this._redirectUri  = config.redirectUri
@@ -51,6 +60,7 @@ export class PrimeAuth {
     this.cookieName    = config.cookieName ?? 'prime_auth_session'
     this.cookieMaxAge  = config.cookieMaxAge ?? 60 * 60 * 24 * 7
     this._tenant       = config.tenant
+    this._companyApiKey = config.companyApiKey
 
     log('info', 'PrimeAuth inicializado.', {
       serverUrl: this._serverUrl,
@@ -104,6 +114,77 @@ export class PrimeAuth {
     return { url, state }
   }
 
+  /**
+   * Busca informações públicas da aplicação (nome, empresa, logos e o
+   * `tenantSlug` cadastrado, se houver) a partir do `clientId` configurado.
+   * Não requer autenticação. O resultado é cacheado em memória por alguns
+   * minutos para não bater na rede a cada chamada.
+   */
+  async getAppInfo(): Promise<AppInfo> {
+    const now = Date.now()
+    if (this._appInfoCache && this._appInfoCache.expiresAt > now) {
+      return this._appInfoCache.value
+    }
+    if (this._appInfoPromise) return this._appInfoPromise
+
+    this._appInfoPromise = (async () => {
+      log('debug', 'Buscando informações da aplicação em /api/oauth/app-info...')
+      try {
+        const query = new URLSearchParams({ client_id: this._clientId })
+        const info = await this._fetch(`${this._serverUrl}/api/oauth/app-info?${query}`) as AppInfo
+        this._appInfoCache = { value: info, expiresAt: now + APP_INFO_CACHE_MS }
+        log('debug', 'Informações da aplicação obtidas.', { appId: info.appId, tenantSlug: info.tenantSlug })
+        return info
+      } catch (err) {
+        log('error', 'Falha ao buscar informações da aplicação.', { error: String(err) })
+        throw err
+      } finally {
+        this._appInfoPromise = null
+      }
+    })()
+
+    return this._appInfoPromise
+  }
+
+  // ─── Company API (leitura de usuários entre aplicações) ───────────────────
+
+  /**
+   * Lista usuários de todas as aplicações da empresa, usando a chave de API
+   * da empresa (`config.companyApiKey`) — não o `clientSecret` da aplicação.
+   * Útil quando a mesma empresa tem mais de um tenant/aplicação e você
+   * precisa reconhecer usuários independente de qual deles foi usado no login.
+   */
+  async listCompanyUsers(opts?: { limit?: number; cursor?: string }): Promise<{ users: CompanyUser[]; nextCursor: string | null }> {
+    this._requireCompanyApiKey()
+    const query = new URLSearchParams()
+    if (opts?.limit) query.set('limit', String(opts.limit))
+    if (opts?.cursor) query.set('cursor', opts.cursor)
+    const qs = query.toString()
+    return this._fetch(`${this._serverUrl}/api/company/v1/users${qs ? `?${qs}` : ''}`, {
+      headers: { Authorization: `Bearer ${this._companyApiKey}` },
+    }) as Promise<{ users: CompanyUser[]; nextCursor: string | null }>
+  }
+
+  /** Busca um usuário específico (por `sub`) em qualquer aplicação da empresa. Retorna `null` se não encontrado. */
+  async getCompanyUser(sub: string): Promise<CompanyUser | null> {
+    this._requireCompanyApiKey()
+    try {
+      return await this._fetch(`${this._serverUrl}/api/company/v1/users/${encodeURIComponent(sub)}`, {
+        headers: { Authorization: `Bearer ${this._companyApiKey}` },
+      }) as CompanyUser
+    } catch (err) {
+      if (err instanceof ServerError && err.status === 404) return null
+      throw err
+    }
+  }
+
+  private _requireCompanyApiKey(): void {
+    if (!this._companyApiKey) {
+      log('error', 'companyApiKey não configurada. Defina em `new PrimeAuth({ companyApiKey: ... })`.')
+      throw new PrimeAuthError('companyApiKey não configurada.', 'config_error')
+    }
+  }
+
   // ─── Token Exchange ───────────────────────────────────────────────────────
 
   async exchangeCode(code: string, codeVerifier?: string): Promise<TokenSet> {
@@ -154,7 +235,7 @@ export class PrimeAuth {
   async revokeToken(token: string, hint: 'access_token' | 'refresh_token' = 'access_token'): Promise<void> {
     log('info', `Revogando ${hint}...`)
     try {
-      await this._fetch(`${this._serverUrl}/oauth/revoke`, {
+      await this._fetch(`${this._serverUrl}/api/oauth/revoke`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ token, token_type_hint: hint }).toString(),
@@ -171,7 +252,7 @@ export class PrimeAuth {
   async getUserInfo(accessToken: string): Promise<AuthenticatedUser> {
     log('debug', 'Buscando informações do usuário em /oauth/userinfo...')
     try {
-      const info = await this._fetch(`${this._serverUrl}/oauth/userinfo`, {
+      const info = await this._fetch(`${this._serverUrl}/api/oauth/userinfo`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       }) as UserInfo
 
@@ -239,7 +320,7 @@ export class PrimeAuth {
   // ─── Privados ─────────────────────────────────────────────────────────────
 
   private async _tokenRequest(body: Record<string, string>): Promise<TokenSet> {
-    const data = await this._fetch(`${this._serverUrl}/oauth/token`, {
+    const data = await this._fetch(`${this._serverUrl}/api/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(body).toString(),

@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { A as AuthenticatedUser } from '../types-04ermxwR.js';
+import { A as AuthenticatedUser } from '../types-DaH4KbDC.js';
 
 interface UserContextValue {
     user: AuthenticatedUser | null;

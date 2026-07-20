@@ -35,9 +35,16 @@ function createHandlers(auth, opts = {}) {
 }
 function createLoginHandler(auth, opts = {}) {
   const isProduction = process.env["NODE_ENV"] === "production";
-  function GET(request) {
+  async function GET(request) {
     const returnTo = request.nextUrl.searchParams.get("returnTo");
-    const tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : void 0);
+    let tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : void 0);
+    if (!tenant && opts.autoTenant) {
+      try {
+        tenant = (await auth.getAppInfo()).tenantSlug ?? void 0;
+      } catch (err) {
+        log("warn", "[next] autoTenant: falha ao buscar o tenant via getAppInfo(). Prosseguindo sem tenant.", { error: String(err) });
+      }
+    }
     log("info", "[next] Iniciando fluxo de login.", { returnTo: returnTo ?? void 0, tenant: tenant ?? void 0 });
     const { url, state } = auth.getAuthorizationUrl(void 0, tenant ?? void 0);
     const res = NextResponse.redirect(url);

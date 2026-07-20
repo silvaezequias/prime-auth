@@ -36,10 +36,19 @@ export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) 
 export function createLoginHandler(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
   const isProduction = process.env['NODE_ENV'] === 'production'
 
-  function GET(request: NextRequest) {
+  async function GET(request: NextRequest) {
     const returnTo = request.nextUrl.searchParams.get('returnTo')
-    const tenant = request.nextUrl.searchParams.get('tenant')
+    let tenant = request.nextUrl.searchParams.get('tenant')
       ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : undefined)
+
+    if (!tenant && opts.autoTenant) {
+      try {
+        tenant = (await auth.getAppInfo()).tenantSlug ?? undefined
+      } catch (err) {
+        log('warn', '[next] autoTenant: falha ao buscar o tenant via getAppInfo(). Prosseguindo sem tenant.', { error: String(err) })
+      }
+    }
+
     log('info', '[next] Iniciando fluxo de login.', { returnTo: returnTo ?? undefined, tenant: tenant ?? undefined })
 
     const { url, state } = auth.getAuthorizationUrl(undefined, tenant ?? undefined)

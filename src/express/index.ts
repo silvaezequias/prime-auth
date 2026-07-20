@@ -9,4 +9,6 @@ export type {
   TokenPayload,
   UserInfo,
   SessionData,
+  AppInfo,
+  CompanyUser,
 } from '../types.js'

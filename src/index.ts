@@ -9,5 +9,5 @@ export {
 } from './errors.js'
 export type {
   PrimeAuthConfig, TokenSet, TokenPayload, UserInfo,
-  AuthenticatedUser, SessionData,
+  AuthenticatedUser, SessionData, AppInfo, CompanyUser,
 } from './types.js'

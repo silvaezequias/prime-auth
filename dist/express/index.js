@@ -128,17 +128,29 @@ function createRouter(auth, opts = {}) {
   const isProduction = process.env["NODE_ENV"] === "production";
   log("info", "[express] Router OAuth2 configurado.", { successRedirect, errorRedirect, loginPath });
   const router = (0, import_express.Router)();
-  router.get("/auth/login", (req, res) => {
-    const returnTo = req.query["returnTo"];
-    const tenant = req.query["tenant"] ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : void 0);
-    log("info", "[express] Iniciando fluxo de login.", { returnTo, tenant, ip: req.ip });
-    const { url, state } = auth.getAuthorizationUrl(void 0, tenant);
-    res.cookie("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });
-    if (returnTo) {
-      res.cookie("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });
+  router.get("/auth/login", async (req, res) => {
+    try {
+      const returnTo = req.query["returnTo"];
+      let tenant = req.query["tenant"] ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : void 0);
+      if (!tenant && opts.autoTenant) {
+        try {
+          tenant = (await auth.getAppInfo()).tenantSlug ?? void 0;
+        } catch (err) {
+          log("warn", "[express] autoTenant: falha ao buscar o tenant via getAppInfo(). Prosseguindo sem tenant.", { error: String(err) });
+        }
+      }
+      log("info", "[express] Iniciando fluxo de login.", { returnTo, tenant, ip: req.ip });
+      const { url, state } = auth.getAuthorizationUrl(void 0, tenant);
+      res.cookie("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });
+      if (returnTo) {
+        res.cookie("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });
+      }
+      log("debug", "[express] Redirecionando para o servidor de autentica\xE7\xE3o.", { url });
+      res.redirect(url);
+    } catch (err) {
+      log("error", "[express] Falha ao iniciar fluxo de login.", { error: String(err) });
+      res.status(500).send("Erro ao iniciar login.");
     }
-    log("debug", "[express] Redirecionando para o servidor de autentica\xE7\xE3o.", { url });
-    res.redirect(url);
   });
   router.get("/auth/callback", async (req, res) => {
     const { code, state, error, error_description } = req.query;

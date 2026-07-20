@@ -1,5 +1,5 @@
-export { P as PrimeAuth } from './client-YpXX40Lg.mjs';
-export { A as AuthenticatedUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, b as TokenSet, U as UserInfo } from './types-04ermxwR.mjs';
+export { P as PrimeAuth } from './client-C5YGGCP5.mjs';
+export { b as AppInfo, A as AuthenticatedUser, C as CompanyUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, c as TokenSet, U as UserInfo } from './types-DaH4KbDC.mjs';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 /**

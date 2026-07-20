@@ -365,7 +365,54 @@ app.use(createRouter(auth, {
 }))
 ```
 
-A ordem de resolução é sempre: `?tenant=` na URL de login → subdomínio (se `tenantFromSubdomain: true`) → `tenant` fixo no config. Se nenhum tenant for encontrado em nenhuma dessas fontes, a biblioteca volta ao fluxo tradicional (`/oauth/login?client_id=...`), sem quebrar quem não usa tenants.
+### Tenant automático (descoberto do servidor)
+
+Se o `clientId` da sua aplicação já tem um tenant cadastrado no painel do servidor, mas você não quer duplicar esse valor numa env var (e nem depende de subdomínio), habilite `autoTenant`: na ausência de `?tenant=`/subdomínio/config, a biblioteca busca o tenant automaticamente via `auth.getAppInfo()` (com cache de alguns minutos):
+
+```ts
+// Next.js
+export const { GET } = createHandlers(auth, {
+  successRedirect: '/dashboard',
+  autoTenant: true,
+})
+```
+
+```ts
+// Express
+app.use(createRouter(auth, {
+  successRedirect: '/dashboard',
+  autoTenant: true,
+}))
+```
+
+Ordem de resolução completa: `?tenant=` na URL de login → subdomínio (`tenantFromSubdomain`) → `tenant` fixo no config → `autoTenant` (busca no servidor). Se nenhuma fonte resolver um tenant (ou se `getAppInfo()` falhar), a biblioteca volta ao fluxo tradicional (`/oauth/login?client_id=...`), sem quebrar quem não usa tenants.
+
+Você também pode chamar `auth.getAppInfo()` diretamente quando precisar dos dados da aplicação (nome, empresa, logos, tenant):
+
+```ts
+const info = await auth.getAppInfo()
+// { appId, appName, companyName, companyLogoUrl, appLogoUrl, tenantSlug }
+```
+
+---
+
+## Chave de API da empresa (usuários entre tenants)
+
+Cada tenant corresponde a uma aplicação diferente no servidor (client_id/secret próprios) — então, se a sua empresa tiver mais de um tenant, não dá para usar o `clientSecret` de uma aplicação para enxergar usuários de outra. Para isso existe a **chave de API da empresa**: um segredo à parte, gerado na página da empresa no painel do servidor, que dá acesso de leitura aos usuários de **todas** as aplicações daquela empresa — independente de qual tenant foi usado no login.
+
+```ts
+export const auth = new PrimeAuth({
+  clientId:      process.env.PRIME_AUTH_CLIENT_ID!,
+  clientSecret:  process.env.PRIME_AUTH_CLIENT_SECRET!,
+  redirectUri:   'http://localhost:3000/auth/callback',
+  companyApiKey: process.env.PRIME_AUTH_COMPANY_API_KEY, // opcional
+})
+
+const { users, nextCursor } = await auth.listCompanyUsers({ limit: 50 })
+const user = await auth.getCompanyUser(someSub) // null se não encontrado
+```
+
+`companyApiKey` é opcional — só é exigida (erro de config) quando `listCompanyUsers`/`getCompanyUser` são chamados sem ela configurada. Não confunda com `clientSecret`: uma é por aplicação (login/token), a outra é por empresa (leitura entre aplicações).
 
 ---
 
@@ -388,6 +435,7 @@ A ordem de resolução é sempre: `?tenant=` na URL de login → subdomínio (se
 | `cookieName` | `string` | — | Nome do cookie (padrão: `prime_auth_session`) |
 | `cookieMaxAge` | `number` | — | Duração da sessão em segundos (padrão: `604800` = 7 dias) |
 | `tenant` | `string` | — | Tenant padrão — usa o atalho `/oauth2/<tenant>` para montar o link de login. Veja [Login por tenant](#login-por-tenant) |
+| `companyApiKey` | `string` | — | Chave de API da empresa. Veja [Chave de API da empresa](#chave-de-api-da-empresa-usuários-entre-tenants) |
 
 ---
 
@@ -412,6 +460,8 @@ import type { AuthenticatedUser } from 'prime-auth/express'
 | `MiddlewareOptions` | Opções do `createMiddleware` (Next.js) |
 | `ExpressRouterOptions` | Opções do `createRouter` (Express) |
 | `ExpressRequireAuthOptions` | Opções do `requireAuth` (Express) |
+| `AppInfo` | Retorno de `getAppInfo()` |
+| `CompanyUser` | Item retornado por `listCompanyUsers()` / `getCompanyUser()` |
 
 ---
 

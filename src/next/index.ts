@@ -18,4 +18,6 @@ export type {
   TokenPayload,
   UserInfo,
   PrimeAuthConfig,
+  AppInfo,
+  CompanyUser,
 } from '../types.js'

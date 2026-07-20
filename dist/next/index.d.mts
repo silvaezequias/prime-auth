@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { P as PrimeAuth } from '../client-YpXX40Lg.mjs';
-import { N as NextHandlersOptions, A as AuthenticatedUser, M as MiddlewareOptions } from '../types-04ermxwR.mjs';
-export { P as PrimeAuthConfig, S as SessionData, T as TokenPayload, b as TokenSet, U as UserInfo } from '../types-04ermxwR.mjs';
+import { P as PrimeAuth } from '../client-C5YGGCP5.mjs';
+import { N as NextHandlersOptions, A as AuthenticatedUser, M as MiddlewareOptions } from '../types-DaH4KbDC.mjs';
+export { b as AppInfo, C as CompanyUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, c as TokenSet, U as UserInfo } from '../types-DaH4KbDC.mjs';
 
 declare function createHandlers(auth: PrimeAuth, opts?: NextHandlersOptions): {
     GET: (request: NextRequest) => Promise<NextResponse<unknown>>;
 };
 declare function createLoginHandler(auth: PrimeAuth, opts?: NextHandlersOptions): {
-    GET: (request: NextRequest) => NextResponse<unknown>;
+    GET: (request: NextRequest) => Promise<NextResponse<unknown>>;
 };
 declare function createCallbackHandler(auth: PrimeAuth, opts?: NextHandlersOptions): {
     GET: (request: NextRequest) => Promise<NextResponse<unknown>>;

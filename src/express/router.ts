@@ -16,21 +16,35 @@ export function createRouter(auth: PrimeAuth, opts: ExpressRouterOptions = {}) {
   const router = Router()
 
   // GET /auth/login
-  router.get('/auth/login', (req: Request, res: Response) => {
-    const returnTo = req.query['returnTo'] as string | undefined
-    const tenant = (req.query['tenant'] as string | undefined)
-      ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : undefined)
-    log('info', '[express] Iniciando fluxo de login.', { returnTo, tenant, ip: req.ip })
+  router.get('/auth/login', async (req: Request, res: Response) => {
+    try {
+      const returnTo = req.query['returnTo'] as string | undefined
+      let tenant = (req.query['tenant'] as string | undefined)
+        ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : undefined)
 
-    const { url, state } = auth.getAuthorizationUrl(undefined, tenant)
+      if (!tenant && opts.autoTenant) {
+        try {
+          tenant = (await auth.getAppInfo()).tenantSlug ?? undefined
+        } catch (err) {
+          log('warn', '[express] autoTenant: falha ao buscar o tenant via getAppInfo(). Prosseguindo sem tenant.', { error: String(err) })
+        }
+      }
 
-    res.cookie('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 10 * 60 * 1000, secure: isProduction })
-    if (returnTo) {
-      res.cookie('_pa_return', returnTo, { httpOnly: true, sameSite: 'lax', maxAge: 10 * 60 * 1000, secure: isProduction })
+      log('info', '[express] Iniciando fluxo de login.', { returnTo, tenant, ip: req.ip })
+
+      const { url, state } = auth.getAuthorizationUrl(undefined, tenant)
+
+      res.cookie('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 10 * 60 * 1000, secure: isProduction })
+      if (returnTo) {
+        res.cookie('_pa_return', returnTo, { httpOnly: true, sameSite: 'lax', maxAge: 10 * 60 * 1000, secure: isProduction })
+      }
+
+      log('debug', '[express] Redirecionando para o servidor de autenticação.', { url })
+      res.redirect(url)
+    } catch (err) {
+      log('error', '[express] Falha ao iniciar fluxo de login.', { error: String(err) })
+      res.status(500).send('Erro ao iniciar login.')
     }
-
-    log('debug', '[express] Redirecionando para o servidor de autenticação.', { url })
-    res.redirect(url)
   })
 
   // GET /auth/callback

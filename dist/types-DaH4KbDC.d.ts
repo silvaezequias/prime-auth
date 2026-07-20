@@ -37,6 +37,35 @@ interface PrimeAuthConfig {
      * servidor — é ele que será usado na troca do code por tokens.
      */
     tenant?: string;
+    /**
+     * Chave de API da empresa (não confundir com `clientSecret`, que é por
+     * aplicação). Habilita `listCompanyUsers()`/`getCompanyUser()`, que dão
+     * acesso de leitura aos usuários de todas as aplicações da empresa,
+     * independente do tenant. Gerada no painel do servidor, na página da
+     * empresa. Opcional — só é exigida quando esses métodos são chamados.
+     */
+    companyApiKey?: string;
+}
+interface AppInfo {
+    appId: string;
+    appName: string;
+    companyName: string;
+    companyLogoUrl: string | null;
+    appLogoUrl: string | null;
+    /** Tenant cadastrado para esta aplicação, se houver. */
+    tenantSlug: string | null;
+}
+interface CompanyUser {
+    id: string;
+    username: string;
+    name: string;
+    mustChangePassword: boolean;
+    createdAt: string;
+    app: {
+        id: string;
+        name: string;
+        tenantSlug: string | null;
+    };
 }
 interface ExpressRouterOptions {
     /** Para onde redirecionar após login bem-sucedido. @default '/' */
@@ -53,6 +82,13 @@ interface ExpressRouterOptions {
      * (ex.: `acme.meuapp.com` → `acme`). @default false
      */
     tenantFromSubdomain?: boolean;
+    /**
+     * Se `true`, quando nenhum tenant for resolvido pelas outras fontes
+     * (`?tenant=`, subdomínio, `config.tenant`), busca automaticamente o
+     * tenant cadastrado para este `clientId` via `auth.getAppInfo()`.
+     * @default false
+     */
+    autoTenant?: boolean;
 }
 interface ExpressRequireAuthOptions {
     /**
@@ -79,6 +115,13 @@ interface NextHandlersOptions {
      * (ex.: `acme.meuapp.com` → `acme`). @default false
      */
     tenantFromSubdomain?: boolean;
+    /**
+     * Se `true`, quando nenhum tenant for resolvido pelas outras fontes
+     * (`?tenant=`, subdomínio, `config.tenant`), busca automaticamente o
+     * tenant cadastrado para este `clientId` via `auth.getAppInfo()`.
+     * @default false
+     */
+    autoTenant?: boolean;
 }
 interface MiddlewareOptions {
     /**
@@ -142,4 +185,4 @@ interface UserInfo {
     [key: string]: unknown;
 }
 
-export type { AuthenticatedUser as A, ExpressRouterOptions as E, MiddlewareOptions as M, NextHandlersOptions as N, PrimeAuthConfig as P, SessionData as S, TokenPayload as T, UserInfo as U, ExpressRequireAuthOptions as a, TokenSet as b };
+export type { AuthenticatedUser as A, CompanyUser as C, ExpressRouterOptions as E, MiddlewareOptions as M, NextHandlersOptions as N, PrimeAuthConfig as P, SessionData as S, TokenPayload as T, UserInfo as U, ExpressRequireAuthOptions as a, AppInfo as b, TokenSet as c };
