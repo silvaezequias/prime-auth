@@ -4,10 +4,11 @@ import {
 import {
   decodeSession,
   encodeSession
-} from "../chunk-P54TIJ5I.mjs";
+} from "../chunk-UTLJNX76.mjs";
 import {
+  extractTenantFromHost,
   log
-} from "../chunk-UQJ5ES24.mjs";
+} from "../chunk-XAE6UXTH.mjs";
 
 // src/express/router.ts
 import { Router } from "express";
@@ -20,8 +21,9 @@ function createRouter(auth, opts = {}) {
   const router = Router();
   router.get("/auth/login", (req, res) => {
     const returnTo = req.query["returnTo"];
-    log("info", "[express] Iniciando fluxo de login.", { returnTo, ip: req.ip });
-    const { url, state } = auth.getAuthorizationUrl();
+    const tenant = req.query["tenant"] ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : void 0);
+    log("info", "[express] Iniciando fluxo de login.", { returnTo, tenant, ip: req.ip });
+    const { url, state } = auth.getAuthorizationUrl(void 0, tenant);
     res.cookie("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });
     if (returnTo) {
       res.cookie("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });

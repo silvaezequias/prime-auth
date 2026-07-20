@@ -2,6 +2,7 @@ export { PrimeAuth } from './client.js'
 export { configureLogger } from './logger.js'
 export type { LogLevel } from './logger.js'
 export { generateCodeVerifier, generateCodeChallenge, generateState } from './pkce.js'
+export { extractTenantFromHost } from './tenant.js'
 export {
   PrimeAuthError, TokenExpiredError, InvalidTokenError,
   InsufficientScopeError, ServerError,

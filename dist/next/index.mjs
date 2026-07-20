@@ -1,15 +1,16 @@
 import {
   decodeSession,
   encodeSession
-} from "../chunk-P54TIJ5I.mjs";
+} from "../chunk-UTLJNX76.mjs";
 import {
+  extractTenantFromHost,
   log
-} from "../chunk-UQJ5ES24.mjs";
+} from "../chunk-XAE6UXTH.mjs";
 
 // src/next/handlers.ts
 import { NextResponse } from "next/server";
 function createHandlers(auth, opts = {}) {
-  const { GET: loginGET } = createLoginHandler(auth);
+  const { GET: loginGET } = createLoginHandler(auth, opts);
   const { GET: callbackGET } = createCallbackHandler(auth, opts);
   const { GET: logoutGET } = createLogoutHandler(auth);
   const { GET: meGET } = createMeHandler(auth);
@@ -32,12 +33,13 @@ function createHandlers(auth, opts = {}) {
   }
   return { GET };
 }
-function createLoginHandler(auth) {
+function createLoginHandler(auth, opts = {}) {
   const isProduction = process.env["NODE_ENV"] === "production";
   function GET(request) {
     const returnTo = request.nextUrl.searchParams.get("returnTo");
-    log("info", "[next] Iniciando fluxo de login.", { returnTo: returnTo ?? void 0 });
-    const { url, state } = auth.getAuthorizationUrl();
+    const tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : void 0);
+    log("info", "[next] Iniciando fluxo de login.", { returnTo: returnTo ?? void 0, tenant: tenant ?? void 0 });
+    const { url, state } = auth.getAuthorizationUrl(void 0, tenant ?? void 0);
     const res = NextResponse.redirect(url);
     res.cookies.set("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600, secure: isProduction, path: "/" });
     if (returnTo) {

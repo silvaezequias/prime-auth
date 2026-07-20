@@ -27,6 +27,7 @@ __export(index_exports, {
   ServerError: () => ServerError,
   TokenExpiredError: () => TokenExpiredError,
   configureLogger: () => configureLogger,
+  extractTenantFromHost: () => extractTenantFromHost,
   generateCodeChallenge: () => generateCodeChallenge,
   generateCodeVerifier: () => generateCodeVerifier,
   generateState: () => generateState
@@ -137,11 +138,13 @@ var PrimeAuth = class {
     this._timeoutMs = config.timeoutMs ?? 1e4;
     this.cookieName = config.cookieName ?? "prime_auth_session";
     this.cookieMaxAge = config.cookieMaxAge ?? 60 * 60 * 24 * 7;
+    this._tenant = config.tenant;
     log("info", "PrimeAuth inicializado.", {
       serverUrl: this._serverUrl,
       clientId: this._clientId,
       redirectUri: this._redirectUri,
-      scopes: this._scopes
+      scopes: this._scopes,
+      tenant: this._tenant
     });
   }
   // ─── Getters ──────────────────────────────────────────────────────────────
@@ -157,9 +160,28 @@ var PrimeAuth = class {
   get scopes() {
     return this._scopes;
   }
+  get tenant() {
+    return this._tenant;
+  }
   // ─── Authorization URL ────────────────────────────────────────────────────
-  getAuthorizationUrl(extra) {
+  /**
+   * Monta a URL de autorização para redirecionar o usuário.
+   *
+   * Se um tenant estiver disponível (via `tenantOverride` ou `config.tenant`),
+   * usa o atalho `GET /oauth2/<tenant>` do servidor, que resolve o client_id
+   * e o redirect_uri automaticamente a partir do tenant cadastrado. Caso
+   * contrário, monta a URL tradicional em `/oauth/login` com os parâmetros
+   * OAuth2 explícitos.
+   */
+  getAuthorizationUrl(extra, tenantOverride) {
     const state = (0, import_crypto.randomBytes)(16).toString("hex");
+    const tenant = tenantOverride ?? this._tenant;
+    if (tenant) {
+      const query2 = new URLSearchParams({ state, ...extra });
+      const url2 = `${this._serverUrl}/oauth2/${encodeURIComponent(tenant)}?${query2}`;
+      log("debug", "URL de autoriza\xE7\xE3o gerada via tenant.", { url: url2, tenant });
+      return { url: url2, state };
+    }
     const query = new URLSearchParams({
       response_type: "code",
       client_id: this._clientId,
@@ -370,6 +392,17 @@ function generateCodeChallenge(verifier) {
 function generateState() {
   return (0, import_crypto2.randomBytes)(16).toString("hex");
 }
+
+// src/tenant.ts
+var IGNORED_SUBDOMAINS = /* @__PURE__ */ new Set(["www"]);
+function extractTenantFromHost(hostname) {
+  const host = hostname.split(":")[0] ?? "";
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length < 3) return void 0;
+  const candidate = labels[0];
+  if (!candidate || IGNORED_SUBDOMAINS.has(candidate)) return void 0;
+  return candidate;
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   InsufficientScopeError,
@@ -379,6 +412,7 @@ function generateState() {
   ServerError,
   TokenExpiredError,
   configureLogger,
+  extractTenantFromHost,
   generateCodeChallenge,
   generateCodeVerifier,
   generateState

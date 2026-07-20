@@ -109,6 +109,17 @@ function decodeSession(cookie, secret) {
   }
 }
 
+// src/tenant.ts
+var IGNORED_SUBDOMAINS = /* @__PURE__ */ new Set(["www"]);
+function extractTenantFromHost(hostname) {
+  const host = hostname.split(":")[0] ?? "";
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length < 3) return void 0;
+  const candidate = labels[0];
+  if (!candidate || IGNORED_SUBDOMAINS.has(candidate)) return void 0;
+  return candidate;
+}
+
 // src/express/router.ts
 function createRouter(auth, opts = {}) {
   const successRedirect = opts.successRedirect ?? "/";
@@ -119,8 +130,9 @@ function createRouter(auth, opts = {}) {
   const router = (0, import_express.Router)();
   router.get("/auth/login", (req, res) => {
     const returnTo = req.query["returnTo"];
-    log("info", "[express] Iniciando fluxo de login.", { returnTo, ip: req.ip });
-    const { url, state } = auth.getAuthorizationUrl();
+    const tenant = req.query["tenant"] ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : void 0);
+    log("info", "[express] Iniciando fluxo de login.", { returnTo, tenant, ip: req.ip });
+    const { url, state } = auth.getAuthorizationUrl(void 0, tenant);
     res.cookie("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });
     if (returnTo) {
       res.cookie("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 10 * 60 * 1e3, secure: isProduction });

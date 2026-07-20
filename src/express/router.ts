@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { PrimeAuth } from '../client.js'
 import { ExpressRouterOptions, AuthenticatedUser } from '../types.js'
 import { encodeSession, decodeSession } from '../session.js'
+import { extractTenantFromHost } from '../tenant.js'
 import { log } from '../logger.js'
 
 export function createRouter(auth: PrimeAuth, opts: ExpressRouterOptions = {}) {
@@ -17,9 +18,11 @@ export function createRouter(auth: PrimeAuth, opts: ExpressRouterOptions = {}) {
   // GET /auth/login
   router.get('/auth/login', (req: Request, res: Response) => {
     const returnTo = req.query['returnTo'] as string | undefined
-    log('info', '[express] Iniciando fluxo de login.', { returnTo, ip: req.ip })
+    const tenant = (req.query['tenant'] as string | undefined)
+      ?? (opts.tenantFromSubdomain ? extractTenantFromHost(req.hostname) : undefined)
+    log('info', '[express] Iniciando fluxo de login.', { returnTo, tenant, ip: req.ip })
 
-    const { url, state } = auth.getAuthorizationUrl()
+    const { url, state } = auth.getAuthorizationUrl(undefined, tenant)
 
     res.cookie('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 10 * 60 * 1000, secure: isProduction })
     if (returnTo) {

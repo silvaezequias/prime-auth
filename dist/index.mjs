@@ -7,8 +7,9 @@ import {
 } from "./chunk-BQARVMFT.mjs";
 import {
   configureLogger,
+  extractTenantFromHost,
   log
-} from "./chunk-UQJ5ES24.mjs";
+} from "./chunk-XAE6UXTH.mjs";
 
 // src/client.ts
 import { randomBytes } from "crypto";
@@ -41,11 +42,13 @@ var PrimeAuth = class {
     this._timeoutMs = config.timeoutMs ?? 1e4;
     this.cookieName = config.cookieName ?? "prime_auth_session";
     this.cookieMaxAge = config.cookieMaxAge ?? 60 * 60 * 24 * 7;
+    this._tenant = config.tenant;
     log("info", "PrimeAuth inicializado.", {
       serverUrl: this._serverUrl,
       clientId: this._clientId,
       redirectUri: this._redirectUri,
-      scopes: this._scopes
+      scopes: this._scopes,
+      tenant: this._tenant
     });
   }
   // ─── Getters ──────────────────────────────────────────────────────────────
@@ -61,9 +64,28 @@ var PrimeAuth = class {
   get scopes() {
     return this._scopes;
   }
+  get tenant() {
+    return this._tenant;
+  }
   // ─── Authorization URL ────────────────────────────────────────────────────
-  getAuthorizationUrl(extra) {
+  /**
+   * Monta a URL de autorização para redirecionar o usuário.
+   *
+   * Se um tenant estiver disponível (via `tenantOverride` ou `config.tenant`),
+   * usa o atalho `GET /oauth2/<tenant>` do servidor, que resolve o client_id
+   * e o redirect_uri automaticamente a partir do tenant cadastrado. Caso
+   * contrário, monta a URL tradicional em `/oauth/login` com os parâmetros
+   * OAuth2 explícitos.
+   */
+  getAuthorizationUrl(extra, tenantOverride) {
     const state = randomBytes(16).toString("hex");
+    const tenant = tenantOverride ?? this._tenant;
+    if (tenant) {
+      const query2 = new URLSearchParams({ state, ...extra });
+      const url2 = `${this._serverUrl}/oauth2/${encodeURIComponent(tenant)}?${query2}`;
+      log("debug", "URL de autoriza\xE7\xE3o gerada via tenant.", { url: url2, tenant });
+      return { url: url2, state };
+    }
     const query = new URLSearchParams({
       response_type: "code",
       client_id: this._clientId,
@@ -282,6 +304,7 @@ export {
   ServerError,
   TokenExpiredError,
   configureLogger,
+  extractTenantFromHost,
   generateCodeChallenge,
   generateCodeVerifier,
   generateState

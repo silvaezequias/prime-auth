@@ -24,6 +24,19 @@ export interface PrimeAuthConfig {
   cookieName?: string
   /** Duração da sessão em segundos. @default 604800 (7 dias) */
   cookieMaxAge?: number
+  /**
+   * Tenant padrão desta instância. Quando definido, o link de login passa a
+   * usar o atalho `GET /oauth2/<tenant>` do servidor (que resolve client_id
+   * e redirect_uri automaticamente) em vez de `/oauth/login?client_id=...`.
+   *
+   * Pode ser sobrescrito por requisição via `?tenant=` na rota de login, ou
+   * (se `tenantFromSubdomain` estiver habilitado) detectado do subdomínio.
+   *
+   * Importante: o `redirectUri` configurado aqui precisa ser exatamente o
+   * mesmo `defaultRedirectUri` cadastrado para o tenant no painel do
+   * servidor — é ele que será usado na troca do code por tokens.
+   */
+  tenant?: string
 }
 
 export interface ExpressRouterOptions {
@@ -35,6 +48,12 @@ export interface ExpressRouterOptions {
   loginPath?: string
   /** Callback chamado após login bem-sucedido (server-side). */
   onSuccess?: (user: AuthenticatedUser, req: unknown, res: unknown) => void | Promise<void>
+  /**
+   * Se `true`, quando nenhum tenant for informado via `?tenant=`, tenta
+   * extrair o tenant do subdomínio do host da requisição
+   * (ex.: `acme.meuapp.com` → `acme`). @default false
+   */
+  tenantFromSubdomain?: boolean
 }
 
 export interface ExpressRequireAuthOptions {
@@ -57,6 +76,12 @@ export interface NextHandlersOptions {
    * Retornar `false` impede o redirect padrão.
    */
   onSuccess?: (user: AuthenticatedUser) => void | false | Promise<void | false>
+  /**
+   * Se `true`, quando nenhum tenant for informado via `?tenant=`, tenta
+   * extrair o tenant do subdomínio do host da requisição
+   * (ex.: `acme.meuapp.com` → `acme`). @default false
+   */
+  tenantFromSubdomain?: boolean
 }
 
 export interface MiddlewareOptions {

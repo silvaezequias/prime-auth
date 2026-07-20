@@ -3,12 +3,13 @@ import { NextResponse } from 'next/server'
 import { PrimeAuth } from '../client.js'
 import { NextHandlersOptions, AuthenticatedUser } from '../types.js'
 import { encodeSession, decodeSession } from '../session.js'
+import { extractTenantFromHost } from '../tenant.js'
 import { log } from '../logger.js'
 
 // ─── Catch-all handler ────────────────────────────────────────────────────────
 
 export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
-  const { GET: loginGET }    = createLoginHandler(auth)
+  const { GET: loginGET }    = createLoginHandler(auth, opts)
   const { GET: callbackGET } = createCallbackHandler(auth, opts)
   const { GET: logoutGET }   = createLogoutHandler(auth)
   const { GET: meGET }       = createMeHandler(auth)
@@ -32,14 +33,16 @@ export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) 
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
-export function createLoginHandler(auth: PrimeAuth) {
+export function createLoginHandler(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
   const isProduction = process.env['NODE_ENV'] === 'production'
 
   function GET(request: NextRequest) {
     const returnTo = request.nextUrl.searchParams.get('returnTo')
-    log('info', '[next] Iniciando fluxo de login.', { returnTo: returnTo ?? undefined })
+    const tenant = request.nextUrl.searchParams.get('tenant')
+      ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : undefined)
+    log('info', '[next] Iniciando fluxo de login.', { returnTo: returnTo ?? undefined, tenant: tenant ?? undefined })
 
-    const { url, state } = auth.getAuthorizationUrl()
+    const { url, state } = auth.getAuthorizationUrl(undefined, tenant ?? undefined)
     const res = NextResponse.redirect(url)
 
     res.cookies.set('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure: isProduction, path: '/' })

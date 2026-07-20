@@ -1,5 +1,5 @@
-export { P as PrimeAuth } from './client-BkdewWL6.js';
-export { A as AuthenticatedUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, b as TokenSet, U as UserInfo } from './types-CK3Pypy4.js';
+export { P as PrimeAuth } from './client-wfpjzBdU.js';
+export { A as AuthenticatedUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, b as TokenSet, U as UserInfo } from './types-04ermxwR.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 /**
@@ -31,6 +31,17 @@ declare function generateCodeChallenge(verifier: string): string;
 /** Gera um state aleatório para proteção CSRF */
 declare function generateState(): string;
 
+/**
+ * Extrai o primeiro rótulo de um hostname como tenant, quando existe subdomínio.
+ * Ex.: "acme.meuapp.com" → "acme". Retorna undefined para hosts sem subdomínio
+ * (ex.: "meuapp.com", "localhost") ou para subdomínios comuns não relacionados
+ * a tenant (ex.: "www").
+ *
+ * Heurística simples baseada em contagem de rótulos — não lida com domínios
+ * multi-nível como "meuapp.co.uk" (trataria "meuapp" como tenant de "co.uk").
+ */
+declare function extractTenantFromHost(hostname: string): string | undefined;
+
 declare class PrimeAuthError extends Error {
     readonly code: string;
     readonly status?: number | undefined;
@@ -50,4 +61,4 @@ declare class ServerError extends PrimeAuthError {
     constructor(message: string, status: number, detail?: unknown);
 }
 
-export { InsufficientScopeError, InvalidTokenError, type LogLevel, PrimeAuthError, ServerError, TokenExpiredError, configureLogger, generateCodeChallenge, generateCodeVerifier, generateState };
+export { InsufficientScopeError, InvalidTokenError, type LogLevel, PrimeAuthError, ServerError, TokenExpiredError, configureLogger, extractTenantFromHost, generateCodeChallenge, generateCodeVerifier, generateState };

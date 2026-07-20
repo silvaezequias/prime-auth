@@ -254,7 +254,11 @@ app.use(createRouter(auth, {
 
 ### Usar o usuário em uma página HTML pura (sem framework)
 
-Para páginas HTML servidas pelo próprio Express (sem Next.js), use o cliente JS em [`examples/auth-client.js`](examples/auth-client.js), que consome o endpoint `GET /auth/me`:
+Para páginas HTML servidas pelo próprio Express (sem Next.js), use o cliente JS em [`src/auth-client.js`](src/auth-client.js), que consome o endpoint `GET /auth/me`. Como é um módulo sem build, copie-o para a pasta de arquivos estáticos do seu projeto (ex.: `public/auth-client.js`) — `node_modules` normalmente não fica acessível pelo navegador:
+
+```bash
+cp node_modules/prime-auth/src/auth-client.js public/auth-client.js
+```
 
 ```html
 <script type="module">
@@ -316,6 +320,55 @@ Para páginas HTML servidas pelo próprio Express (sem Next.js), use o cliente J
 
 ---
 
+## Login por tenant
+
+O servidor Autenticação Prime permite cadastrar um **tenant** (identificador único) para uma aplicação, junto com uma **URI de redirecionamento padrão**. Com isso, em vez de montar a URL de autorização manualmente (`client_id`, `redirect_uri`, `scope`...), basta indicar o tenant e a biblioteca usa o atalho `GET /oauth2/<tenant>` do servidor, que resolve tudo automaticamente.
+
+> **Importante:** o `redirectUri` configurado no `new PrimeAuth({ ... })` precisa ser **exatamente igual** à "URI de redirecionamento padrão" cadastrada para esse tenant no painel do servidor — é ela que será usada na troca do `code` por tokens em `/auth/callback`.
+
+### Tenant fixo (uma instância = um tenant)
+
+```ts
+export const auth = new PrimeAuth({
+  clientId:     process.env.PRIME_AUTH_CLIENT_ID!,
+  clientSecret: process.env.PRIME_AUTH_CLIENT_SECRET!,
+  redirectUri:  'http://localhost:3000/auth/callback',
+  tenant:       'minha-empresa', // usa /oauth2/minha-empresa em vez de /oauth/login
+})
+```
+
+### Tenant dinâmico por link
+
+Sem precisar fixar o tenant na instância, passe `?tenant=` na própria rota de login — útil quando o mesmo app serve mais de um tenant e o link muda por página/contexto:
+
+```tsx
+<a href="/auth/login?tenant=minha-empresa">Entrar</a>
+```
+
+### Tenant dinâmico por subdomínio
+
+Habilite `tenantFromSubdomain` para que, na ausência de `?tenant=`, o tenant seja extraído automaticamente do subdomínio da requisição (ex.: `minha-empresa.meuapp.com` → `minha-empresa`; hosts sem subdomínio como `meuapp.com` ou `localhost` não geram tenant):
+
+```ts
+// Next.js
+export const { GET } = createHandlers(auth, {
+  successRedirect: '/dashboard',
+  tenantFromSubdomain: true,
+})
+```
+
+```ts
+// Express
+app.use(createRouter(auth, {
+  successRedirect: '/dashboard',
+  tenantFromSubdomain: true,
+}))
+```
+
+A ordem de resolução é sempre: `?tenant=` na URL de login → subdomínio (se `tenantFromSubdomain: true`) → `tenant` fixo no config. Se nenhum tenant for encontrado em nenhuma dessas fontes, a biblioteca volta ao fluxo tradicional (`/oauth/login?client_id=...`), sem quebrar quem não usa tenants.
+
+---
+
 ## Renovação automática de tokens
 
 `getUser()` (Next.js) e `requireAuth()` (Express) renovam o access token automaticamente quando está prestes a expirar (margem de 60s), usando o refresh token salvo no cookie. O usuário não percebe nada.
@@ -334,6 +387,7 @@ Para páginas HTML servidas pelo próprio Express (sem Next.js), use o cliente J
 | `timeoutMs` | `number` | — | Timeout em ms (padrão: `10000`) |
 | `cookieName` | `string` | — | Nome do cookie (padrão: `prime_auth_session`) |
 | `cookieMaxAge` | `number` | — | Duração da sessão em segundos (padrão: `604800` = 7 dias) |
+| `tenant` | `string` | — | Tenant padrão — usa o atalho `/oauth2/<tenant>` para montar o link de login. Veja [Login por tenant](#login-por-tenant) |
 
 ---
 

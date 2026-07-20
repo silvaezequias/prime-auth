@@ -20,6 +20,7 @@ export class PrimeAuth {
   private readonly _redirectUri: string
   private readonly _scopes: string[]
   private readonly _timeoutMs: number
+  private readonly _tenant: string | undefined
 
   constructor(config: PrimeAuthConfig) {
     const serverUrl = config.serverUrl ?? process.env['PRIME_AUTH_SERVER_URL']
@@ -49,12 +50,14 @@ export class PrimeAuth {
     this._timeoutMs    = config.timeoutMs ?? 10_000
     this.cookieName    = config.cookieName ?? 'prime_auth_session'
     this.cookieMaxAge  = config.cookieMaxAge ?? 60 * 60 * 24 * 7
+    this._tenant       = config.tenant
 
     log('info', 'PrimeAuth inicializado.', {
       serverUrl: this._serverUrl,
       clientId:  this._clientId,
       redirectUri: this._redirectUri,
       scopes: this._scopes,
+      tenant: this._tenant,
     })
   }
 
@@ -64,11 +67,30 @@ export class PrimeAuth {
   get clientId(): string    { return this._clientId }
   get redirectUri(): string { return this._redirectUri }
   get scopes(): string[]    { return this._scopes }
+  get tenant(): string | undefined { return this._tenant }
 
   // ─── Authorization URL ────────────────────────────────────────────────────
 
-  getAuthorizationUrl(extra?: Record<string, string>): { url: string; state: string } {
-    const state = randomBytes(16).toString('hex')
+  /**
+   * Monta a URL de autorização para redirecionar o usuário.
+   *
+   * Se um tenant estiver disponível (via `tenantOverride` ou `config.tenant`),
+   * usa o atalho `GET /oauth2/<tenant>` do servidor, que resolve o client_id
+   * e o redirect_uri automaticamente a partir do tenant cadastrado. Caso
+   * contrário, monta a URL tradicional em `/oauth/login` com os parâmetros
+   * OAuth2 explícitos.
+   */
+  getAuthorizationUrl(extra?: Record<string, string>, tenantOverride?: string): { url: string; state: string } {
+    const state  = randomBytes(16).toString('hex')
+    const tenant = tenantOverride ?? this._tenant
+
+    if (tenant) {
+      const query = new URLSearchParams({ state, ...extra })
+      const url = `${this._serverUrl}/oauth2/${encodeURIComponent(tenant)}?${query}`
+      log('debug', 'URL de autorização gerada via tenant.', { url, tenant })
+      return { url, state }
+    }
+
     const query = new URLSearchParams({
       response_type: 'code',
       client_id:     this._clientId,

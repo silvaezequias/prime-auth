@@ -34,7 +34,19 @@ function log(level, message, context) {
   else console.info(label, output);
 }
 
+// src/tenant.ts
+var IGNORED_SUBDOMAINS = /* @__PURE__ */ new Set(["www"]);
+function extractTenantFromHost(hostname) {
+  const host = hostname.split(":")[0] ?? "";
+  const labels = host.split(".").filter(Boolean);
+  if (labels.length < 3) return void 0;
+  const candidate = labels[0];
+  if (!candidate || IGNORED_SUBDOMAINS.has(candidate)) return void 0;
+  return candidate;
+}
+
 export {
   configureLogger,
-  log
+  log,
+  extractTenantFromHost
 };
