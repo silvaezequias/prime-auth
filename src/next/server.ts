@@ -38,9 +38,8 @@ export async function getUser(auth: PrimeAuth): Promise<AuthenticatedUser | null
         expiresAt:    tokenSet.expires_at,
       }
 
-      const isProduction = process.env['NODE_ENV'] === 'production'
       cookieStore.set(auth.cookieName, encodeSession(newSession, auth.sessionSecret), {
-        httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure: isProduction, path: '/',
+        httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure: await isSecureRequest(), path: '/',
       })
 
       log('info', '[next:server] getUser() — token renovado com sucesso.')
@@ -83,4 +82,12 @@ async function getCookies() {
   const { cookies } = await import('next/headers')
   const result = cookies()
   return result instanceof Promise ? await result : result
+}
+
+// Baseado no protocolo real (via x-forwarded-proto), não em NODE_ENV — ver
+// nota equivalente em next/handlers.ts.
+async function isSecureRequest(): Promise<boolean> {
+  const { headers } = await import('next/headers')
+  const h = await headers()
+  return h.get('x-forwarded-proto') === 'https'
 }

@@ -166,8 +166,8 @@ function createHandlers(authSource, opts = {}) {
   return { GET };
 }
 function createLoginHandler(authSource, opts = {}) {
-  const isProduction = process.env["NODE_ENV"] === "production";
   async function GET(request) {
+    const secure = request.nextUrl.protocol === "https:";
     const auth = await resolveAuth(authSource, request);
     const returnTo = request.nextUrl.searchParams.get("returnTo");
     let tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : void 0);
@@ -181,9 +181,9 @@ function createLoginHandler(authSource, opts = {}) {
     log("info", "[next] Iniciando fluxo de login.", { returnTo: returnTo ?? void 0, tenant: tenant ?? void 0 });
     const { url, state } = auth.getAuthorizationUrl(void 0, tenant ?? void 0);
     const res = import_server.NextResponse.redirect(url);
-    res.cookies.set("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600, secure: isProduction, path: "/" });
+    res.cookies.set("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600, secure, path: "/" });
     if (returnTo) {
-      res.cookies.set("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 600, secure: isProduction, path: "/" });
+      res.cookies.set("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 600, secure, path: "/" });
     }
     log("debug", "[next] Redirecionando para o servidor de autentica\xE7\xE3o.", { url });
     return res;
@@ -193,8 +193,8 @@ function createLoginHandler(authSource, opts = {}) {
 function createCallbackHandler(authSource, opts = {}) {
   const successRedirect = opts.successRedirect ?? "/";
   const errorRedirect = opts.errorRedirect ?? "/auth/login";
-  const isProduction = process.env["NODE_ENV"] === "production";
   async function GET(request) {
+    const secure = request.nextUrl.protocol === "https:";
     const auth = await resolveAuth(authSource, request);
     const { searchParams } = request.nextUrl;
     const code = searchParams.get("code");
@@ -242,7 +242,7 @@ function createCallbackHandler(authSource, opts = {}) {
         httpOnly: true,
         sameSite: "lax",
         maxAge: auth.cookieMaxAge,
-        secure: isProduction,
+        secure,
         path: "/"
       });
       res.cookies.delete("_pa_state");
@@ -391,12 +391,11 @@ async function getUser(auth) {
         refreshToken: tokenSet.refresh_token ?? session.refreshToken,
         expiresAt: tokenSet.expires_at
       };
-      const isProduction = process.env["NODE_ENV"] === "production";
       cookieStore.set(auth.cookieName, encodeSession(newSession, auth.sessionSecret), {
         httpOnly: true,
         sameSite: "lax",
         maxAge: auth.cookieMaxAge,
-        secure: isProduction,
+        secure: await isSecureRequest(),
         path: "/"
       });
       log("info", "[next:server] getUser() \u2014 token renovado com sucesso.");
@@ -435,6 +434,11 @@ async function getCookies() {
   const { cookies } = await import("next/headers");
   const result = cookies();
   return result instanceof Promise ? await result : result;
+}
+async function isSecureRequest() {
+  const { headers } = await import("next/headers");
+  const h = await headers();
+  return h.get("x-forwarded-proto") === "https";
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

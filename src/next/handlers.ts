@@ -52,9 +52,12 @@ export function createHandlers(authSource: AuthSource, opts: NextHandlersOptions
 // ─── Login ────────────────────────────────────────────────────────────────────
 
 export function createLoginHandler(authSource: AuthSource, opts: NextHandlersOptions = {}) {
-  const isProduction = process.env['NODE_ENV'] === 'production'
-
   async function GET(request: NextRequest) {
+    // Baseado no protocolo real da requisição, não em NODE_ENV — "next dev"
+    // não força NODE_ENV=development se já vier definido de fora (ex.: env
+    // herdada do shell), o que faria o cookie sair Secure e ser
+    // silenciosamente descartado pelo navegador em http://localhost.
+    const secure = request.nextUrl.protocol === 'https:'
     const auth = await resolveAuth(authSource, request)
 
     const returnTo = request.nextUrl.searchParams.get('returnTo')
@@ -74,9 +77,9 @@ export function createLoginHandler(authSource: AuthSource, opts: NextHandlersOpt
     const { url, state } = auth.getAuthorizationUrl(undefined, tenant ?? undefined)
     const res = NextResponse.redirect(url)
 
-    res.cookies.set('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure: isProduction, path: '/' })
+    res.cookies.set('_pa_state', state, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure, path: '/' })
     if (returnTo) {
-      res.cookies.set('_pa_return', returnTo, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure: isProduction, path: '/' })
+      res.cookies.set('_pa_return', returnTo, { httpOnly: true, sameSite: 'lax', maxAge: 600, secure, path: '/' })
     }
 
     log('debug', '[next] Redirecionando para o servidor de autenticação.', { url })
@@ -91,9 +94,11 @@ export function createLoginHandler(authSource: AuthSource, opts: NextHandlersOpt
 export function createCallbackHandler(authSource: AuthSource, opts: NextHandlersOptions = {}) {
   const successRedirect = opts.successRedirect ?? '/'
   const errorRedirect   = opts.errorRedirect   ?? '/auth/login'
-  const isProduction    = process.env['NODE_ENV'] === 'production'
 
   async function GET(request: NextRequest) {
+    // Baseado no protocolo real da requisição — ver nota em createLoginHandler.
+    const secure = request.nextUrl.protocol === 'https:'
+
     // Resolvido por requisição de propósito: é aqui que a troca do code por
     // tokens acontece, e é o ponto onde usar client_id/secret errados
     // (ex.: sempre o do .env, ignorando o tenant real) quebra silenciosamente.
@@ -153,7 +158,7 @@ export function createCallbackHandler(authSource: AuthSource, opts: NextHandlers
       const res = NextResponse.redirect(new URL(redirectTo, request.url))
 
       res.cookies.set(auth.cookieName, session, {
-        httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure: isProduction, path: '/',
+        httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure, path: '/',
       })
       res.cookies.delete('_pa_state')
       res.cookies.delete('_pa_return')
