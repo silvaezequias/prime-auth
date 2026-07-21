@@ -329,12 +329,12 @@ function createMiddleware(auth, opts = {}) {
     const cookie = request.cookies.get(auth.cookieName)?.value;
     if (!cookie) {
       log("warn", `[next:middleware] Acesso negado \u2014 sem cookie de sess\xE3o.`, { pathname });
-      return redirectToLogin(request, loginPath);
+      return redirectToLogin(request, loginPath, auth);
     }
     const session = decodeSession(cookie, auth.sessionSecret);
     if (!session) {
       log("warn", `[next:middleware] Cookie de sess\xE3o inv\xE1lido ou adulterado.`, { pathname });
-      return redirectToLogin(request, loginPath);
+      return redirectToLogin(request, loginPath, auth);
     }
     if (Date.now() >= session.expiresAt) {
       if (!session.refreshToken) {
@@ -342,7 +342,7 @@ function createMiddleware(auth, opts = {}) {
           pathname,
           expiredAt: new Date(session.expiresAt).toISOString()
         });
-        return redirectToLogin(request, loginPath);
+        return redirectToLogin(request, loginPath, auth);
       }
       log("info", `[next:middleware] Sess\xE3o expirada mas refresh token dispon\xEDvel. Deixando passar para renova\xE7\xE3o.`, { pathname });
     }
@@ -350,10 +350,21 @@ function createMiddleware(auth, opts = {}) {
     return import_server2.NextResponse.next();
   };
 }
-function redirectToLogin(request, loginPath) {
-  const loginUrl = new URL(loginPath, request.url);
+function redirectToLogin(request, loginPath, auth) {
+  const tenant = extractTenantFromHost(request.nextUrl.hostname);
+  let base = request.url;
+  if (tenant) {
+    try {
+      const appUrl = new URL(auth.redirectUri);
+      appUrl.hostname = `${tenant}.${appUrl.hostname}`;
+      base = appUrl.toString();
+    } catch (err) {
+      log("warn", "[next:middleware] redirectUri inv\xE1lido ao montar URL de login com tenant. Usando o host da requisi\xE7\xE3o.", { error: String(err) });
+    }
+  }
+  const loginUrl = new URL(loginPath, base);
   loginUrl.searchParams.set("returnTo", request.nextUrl.pathname);
-  log("info", `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString() });
+  log("info", `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString(), tenant: tenant ?? void 0 });
   return import_server2.NextResponse.redirect(loginUrl);
 }
 function matchPath(pattern, pathname) {

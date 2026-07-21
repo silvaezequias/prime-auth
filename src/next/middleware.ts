@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { PrimeAuth } from '../client.js'
 import { MiddlewareOptions } from '../types.js'
 import { decodeSession } from '../session.js'
+import { extractTenantFromHost } from '../tenant.js'
 import { log } from '../logger.js'
 
 export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) {
@@ -25,13 +26,13 @@ export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) 
     const cookie = request.cookies.get(auth.cookieName)?.value
     if (!cookie) {
       log('warn', `[next:middleware] Acesso negado — sem cookie de sessão.`, { pathname })
-      return redirectToLogin(request, loginPath)
+      return redirectToLogin(request, loginPath, auth)
     }
 
     const session = decodeSession(cookie, auth.sessionSecret)
     if (!session) {
       log('warn', `[next:middleware] Cookie de sessão inválido ou adulterado.`, { pathname })
-      return redirectToLogin(request, loginPath)
+      return redirectToLogin(request, loginPath, auth)
     }
 
     if (Date.now() >= session.expiresAt) {
@@ -40,7 +41,7 @@ export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) 
           pathname,
           expiredAt: new Date(session.expiresAt).toISOString(),
         })
-        return redirectToLogin(request, loginPath)
+        return redirectToLogin(request, loginPath, auth)
       }
       // Sessão expirada mas há refresh token — deixa passar para o Server Component renovar
       log('info', `[next:middleware] Sessão expirada mas refresh token disponível. Deixando passar para renovação.`, { pathname })
@@ -51,10 +52,31 @@ export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) 
   }
 }
 
-function redirectToLogin(request: NextRequest, loginPath: string) {
-  const loginUrl = new URL(loginPath, request.url)
+/**
+ * Monta a URL de login preservando o tenant. Não confia em `request.url`
+ * (pode não refletir o subdomínio real atrás de proxy/CDN, ou já ter
+ * perdido o tenant por algum outro motivo) — em vez disso, quando há um
+ * tenant no host da requisição, monta a URL a partir do `redirectUri`
+ * configurado (a base é o APP_URL do .env) com o tenant inserido como
+ * subdomínio. Sem tenant detectável, cai no comportamento antigo.
+ */
+function redirectToLogin(request: NextRequest, loginPath: string, auth: PrimeAuth) {
+  const tenant = extractTenantFromHost(request.nextUrl.hostname)
+
+  let base = request.url
+  if (tenant) {
+    try {
+      const appUrl = new URL(auth.redirectUri)
+      appUrl.hostname = `${tenant}.${appUrl.hostname}`
+      base = appUrl.toString()
+    } catch (err) {
+      log('warn', '[next:middleware] redirectUri inválido ao montar URL de login com tenant. Usando o host da requisição.', { error: String(err) })
+    }
+  }
+
+  const loginUrl = new URL(loginPath, base)
   loginUrl.searchParams.set('returnTo', request.nextUrl.pathname)
-  log('info', `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString() })
+  log('info', `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString(), tenant: tenant ?? undefined })
   return NextResponse.redirect(loginUrl)
 }
 
