@@ -5,6 +5,7 @@ export {
   createLogoutHandler,
   createMeHandler,
 } from './handlers.js'
+export type { AuthSource } from './handlers.js'
 export { createMiddleware } from './middleware.js'
 export { getUser, requireUser } from './server.js'
 export type {

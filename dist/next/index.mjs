@@ -9,11 +9,14 @@ import {
 
 // src/next/handlers.ts
 import { NextResponse } from "next/server";
-function createHandlers(auth, opts = {}) {
-  const { GET: loginGET } = createLoginHandler(auth, opts);
-  const { GET: callbackGET } = createCallbackHandler(auth, opts);
-  const { GET: logoutGET } = createLogoutHandler(auth);
-  const { GET: meGET } = createMeHandler(auth);
+async function resolveAuth(source, request) {
+  return typeof source === "function" ? await source(request) : source;
+}
+function createHandlers(authSource, opts = {}) {
+  const { GET: loginGET } = createLoginHandler(authSource, opts);
+  const { GET: callbackGET } = createCallbackHandler(authSource, opts);
+  const { GET: logoutGET } = createLogoutHandler(authSource);
+  const { GET: meGET } = createMeHandler(authSource);
   async function GET(request) {
     const action = request.nextUrl.pathname.split("/").at(-1);
     log("debug", `[next] Route handler acionado.`, { action, pathname: request.nextUrl.pathname });
@@ -33,9 +36,10 @@ function createHandlers(auth, opts = {}) {
   }
   return { GET };
 }
-function createLoginHandler(auth, opts = {}) {
+function createLoginHandler(authSource, opts = {}) {
   const isProduction = process.env["NODE_ENV"] === "production";
   async function GET(request) {
+    const auth = await resolveAuth(authSource, request);
     const returnTo = request.nextUrl.searchParams.get("returnTo");
     let tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : void 0);
     if (!tenant && opts.autoTenant) {
@@ -57,11 +61,12 @@ function createLoginHandler(auth, opts = {}) {
   }
   return { GET };
 }
-function createCallbackHandler(auth, opts = {}) {
+function createCallbackHandler(authSource, opts = {}) {
   const successRedirect = opts.successRedirect ?? "/";
   const errorRedirect = opts.errorRedirect ?? "/auth/login";
   const isProduction = process.env["NODE_ENV"] === "production";
   async function GET(request) {
+    const auth = await resolveAuth(authSource, request);
     const { searchParams } = request.nextUrl;
     const code = searchParams.get("code");
     const state = searchParams.get("state");
@@ -137,8 +142,9 @@ function createCallbackHandler(auth, opts = {}) {
   }
   return { GET };
 }
-function createLogoutHandler(auth, opts = {}) {
-  function GET(request) {
+function createLogoutHandler(authSource, opts = {}) {
+  async function GET(request) {
+    const auth = await resolveAuth(authSource, request);
     const redirectTo = opts.redirectTo ?? "/auth/login";
     log("info", "[next] Usu\xE1rio deslogado. Sess\xE3o encerrada.", { redirectTo });
     const res = NextResponse.redirect(new URL(redirectTo, request.url));
@@ -147,8 +153,9 @@ function createLogoutHandler(auth, opts = {}) {
   }
   return { GET };
 }
-function createMeHandler(auth) {
+function createMeHandler(authSource) {
   async function GET(request) {
+    const auth = await resolveAuth(authSource, request);
     log("debug", "[next] /auth/me \u2014 verificando sess\xE3o do usu\xE1rio.");
     const cookie = request.cookies.get(auth.cookieName)?.value;
     if (!cookie) {
