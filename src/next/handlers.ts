@@ -122,7 +122,7 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
         accessToken:  tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
         expiresAt:    tokenSet.expires_at,
-      }, auth.clientSecret)
+      }, auth.sessionSecret)
 
       const redirectTo = returnTo ?? successRedirect
       const res = NextResponse.redirect(new URL(redirectTo, request.url))
@@ -186,7 +186,7 @@ export function createMeHandler(auth: PrimeAuth) {
       return NextResponse.json(null)
     }
 
-    const session = decodeSession(cookie, auth.clientSecret)
+    const session = decodeSession(cookie, auth.sessionSecret)
     if (!session) {
       log('warn', '[next] /auth/me — cookie de sessão presente mas inválido. Pode ter sido adulterado.')
       return NextResponse.json(null)

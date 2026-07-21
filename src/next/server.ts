@@ -14,7 +14,7 @@ export async function getUser(auth: PrimeAuth): Promise<AuthenticatedUser | null
     return null
   }
 
-  const session = decodeSession(raw, auth.clientSecret)
+  const session = decodeSession(raw, auth.sessionSecret)
   if (!session) {
     log('warn', '[next:server] getUser() — cookie de sessão inválido. Possível adulteração ou clientSecret diferente.')
     return null
@@ -39,7 +39,7 @@ export async function getUser(auth: PrimeAuth): Promise<AuthenticatedUser | null
       }
 
       const isProduction = process.env['NODE_ENV'] === 'production'
-      cookieStore.set(auth.cookieName, encodeSession(newSession, auth.clientSecret), {
+      cookieStore.set(auth.cookieName, encodeSession(newSession, auth.sessionSecret), {
         httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure: isProduction, path: '/',
       })
 

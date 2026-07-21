@@ -14,6 +14,7 @@ const APP_INFO_CACHE_MS = 5 * 60 * 1000
 export class PrimeAuth {
   readonly cookieName: string
   readonly clientSecret: string
+  readonly sessionSecret: string
   readonly cookieMaxAge: number
 
   private readonly _serverUrl: string
@@ -55,6 +56,7 @@ export class PrimeAuth {
     this._clientId     = config.clientId
     this.clientSecret  = config.clientSecret
     this._redirectUri  = config.redirectUri
+    this.sessionSecret = config.sessionSecret ?? config.clientSecret
     this._scopes       = config.scopes ?? DEFAULT_SCOPES
     this._timeoutMs    = config.timeoutMs ?? 10_000
     this.cookieName    = config.cookieName ?? 'prime_auth_session'

@@ -95,7 +95,7 @@ export function createRouter(auth: PrimeAuth, opts: ExpressRouterOptions = {}) {
         accessToken:  tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
         expiresAt:    tokenSet.expires_at,
-      }, auth.clientSecret), {
+      }, auth.sessionSecret), {
         httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge * 1000, secure: isProduction,
       })
 
@@ -137,7 +137,7 @@ export function createRouter(auth: PrimeAuth, opts: ExpressRouterOptions = {}) {
       return res.json(null)
     }
 
-    const session = decodeSession(raw, auth.clientSecret)
+    const session = decodeSession(raw, auth.sessionSecret)
     if (!session) {
       log('warn', '[express] /auth/me — cookie de sessão presente mas inválido. Pode ter sido adulterado.')
       return res.json(null)
