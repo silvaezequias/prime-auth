@@ -467,7 +467,8 @@ var IGNORED_SUBDOMAINS = /* @__PURE__ */ new Set(["www"]);
 function extractTenantFromHost(hostname) {
   const host = hostname.split(":")[0] ?? "";
   const labels = host.split(".").filter(Boolean);
-  if (labels.length < 3) return void 0;
+  const isLocalhostSubdomain = labels.length === 2 && labels[1] === "localhost";
+  if (labels.length < 3 && !isLocalhostSubdomain) return void 0;
   const candidate = labels[0];
   if (!candidate || IGNORED_SUBDOMAINS.has(candidate)) return void 0;
   return candidate;

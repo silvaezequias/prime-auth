@@ -9,7 +9,7 @@ import {
   configureLogger,
   extractTenantFromHost,
   log
-} from "./chunk-XAE6UXTH.mjs";
+} from "./chunk-SAZVEH43.mjs";
 
 // src/client.ts
 import { randomBytes } from "crypto";
