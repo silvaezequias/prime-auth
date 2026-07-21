@@ -28,7 +28,7 @@ export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) 
       return redirectToLogin(request, loginPath)
     }
 
-    const session = decodeSession(cookie, auth.clientSecret)
+    const session = decodeSession(cookie, auth.sessionSecret)
     if (!session) {
       log('warn', `[next:middleware] Cookie de sessão inválido ou adulterado.`, { pathname })
       return redirectToLogin(request, loginPath)

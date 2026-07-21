@@ -1,8 +1,9 @@
-import { P as PrimeAuthConfig, b as AppInfo, C as CompanyUser, c as TokenSet, A as AuthenticatedUser, T as TokenPayload } from './types-DaH4KbDC.js';
+import { P as PrimeAuthConfig, b as AppInfo, C as CompanyUser, c as TokenSet, A as AuthenticatedUser, T as TokenPayload } from './types-BTzC6no2.js';
 
 declare class PrimeAuth {
     readonly cookieName: string;
     readonly clientSecret: string;
+    readonly sessionSecret: string;
     readonly cookieMaxAge: number;
     private readonly _serverUrl;
     private readonly _clientId;

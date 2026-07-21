@@ -1,7 +1,7 @@
 import * as express_serve_static_core from 'express-serve-static-core';
-import { P as PrimeAuth } from '../client-BZdtG-7E.js';
-import { E as ExpressRouterOptions, A as AuthenticatedUser, a as ExpressRequireAuthOptions } from '../types-DaH4KbDC.js';
-export { b as AppInfo, C as CompanyUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, c as TokenSet, U as UserInfo } from '../types-DaH4KbDC.js';
+import { P as PrimeAuth } from '../client-DPad6k_c.js';
+import { E as ExpressRouterOptions, A as AuthenticatedUser, a as ExpressRequireAuthOptions } from '../types-BTzC6no2.js';
+export { b as AppInfo, C as CompanyUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, c as TokenSet, U as UserInfo } from '../types-BTzC6no2.js';
 import { Request, Response, NextFunction } from 'express';
 
 declare function createRouter(auth: PrimeAuth, opts?: ExpressRouterOptions): express_serve_static_core.Router;

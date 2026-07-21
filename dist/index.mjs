@@ -41,6 +41,7 @@ var PrimeAuth = class {
     this._clientId = config.clientId;
     this.clientSecret = config.clientSecret;
     this._redirectUri = config.redirectUri;
+    this.sessionSecret = config.sessionSecret ?? config.clientSecret;
     this._scopes = config.scopes ?? DEFAULT_SCOPES;
     this._timeoutMs = config.timeoutMs ?? 1e4;
     this.cookieName = config.cookieName ?? "prime_auth_session";

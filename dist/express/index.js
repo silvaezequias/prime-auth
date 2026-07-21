@@ -190,7 +190,7 @@ function createRouter(auth, opts = {}) {
         accessToken: tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
         expiresAt: tokenSet.expires_at
-      }, auth.clientSecret), {
+      }, auth.sessionSecret), {
         httpOnly: true,
         sameSite: "lax",
         maxAge: auth.cookieMaxAge * 1e3,
@@ -226,7 +226,7 @@ function createRouter(auth, opts = {}) {
       log("debug", "[express] /auth/me \u2014 nenhum cookie de sess\xE3o encontrado. Retornando null.");
       return res.json(null);
     }
-    const session = decodeSession(raw, auth.clientSecret);
+    const session = decodeSession(raw, auth.sessionSecret);
     if (!session) {
       log("warn", "[express] /auth/me \u2014 cookie de sess\xE3o presente mas inv\xE1lido. Pode ter sido adulterado.");
       return res.json(null);
@@ -283,7 +283,7 @@ function requireAuth(auth, opts = {}) {
       log("debug", `[express:requireAuth] Nenhum cookie de sess\xE3o encontrado.`, { path: req.path });
       return fail("unauthenticated", "Sess\xE3o n\xE3o encontrada.");
     }
-    let session = decodeSession(raw, auth.clientSecret);
+    let session = decodeSession(raw, auth.sessionSecret);
     if (!session) {
       log("warn", `[express:requireAuth] Cookie de sess\xE3o inv\xE1lido ou adulterado.`, { path: req.path });
       return fail("invalid_session", "Sess\xE3o inv\xE1lida.");
@@ -305,7 +305,7 @@ function requireAuth(auth, opts = {}) {
           refreshToken: tokenSet.refresh_token ?? session.refreshToken,
           expiresAt: tokenSet.expires_at
         };
-        res.cookie(auth.cookieName, encodeSession(session, auth.clientSecret), {
+        res.cookie(auth.cookieName, encodeSession(session, auth.sessionSecret), {
           httpOnly: true,
           sameSite: "lax",
           maxAge: auth.cookieMaxAge * 1e3,

@@ -36,7 +36,7 @@ export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {
       return fail('unauthenticated', 'Sessão não encontrada.')
     }
 
-    let session = decodeSession(raw, auth.clientSecret)
+    let session = decodeSession(raw, auth.sessionSecret)
     if (!session) {
       log('warn', `[express:requireAuth] Cookie de sessão inválido ou adulterado.`, { path: req.path })
       return fail('invalid_session', 'Sessão inválida.')
@@ -61,7 +61,7 @@ export function requireAuth(auth: PrimeAuth, opts: ExpressRequireAuthOptions = {
           refreshToken: tokenSet.refresh_token ?? session.refreshToken,
           expiresAt:    tokenSet.expires_at,
         }
-        res.cookie(auth.cookieName, encodeSession(session, auth.clientSecret), {
+        res.cookie(auth.cookieName, encodeSession(session, auth.sessionSecret), {
           httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge * 1000, secure: isProduction,
         })
         log('info', '[express:requireAuth] Token renovado com sucesso.')

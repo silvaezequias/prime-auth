@@ -4,6 +4,15 @@ interface PrimeAuthConfig {
     /** client_secret da aplicação */
     clientSecret: string;
     /**
+     * Chave usada para assinar o cookie de sessão local (HMAC). Por padrão é
+     * igual ao `clientSecret`. Defina explicitamente quando o `clientId`/
+     * `clientSecret` variam por requisição (ex.: multi-tenant com credenciais
+     * por empresa) mas o cookie de sessão precisa continuar sendo validado
+     * de forma consistente em outras partes da aplicação (middleware,
+     * `getUser()`, `/auth/me`) que usam uma instância `PrimeAuth` diferente.
+     */
+    sessionSecret?: string;
+    /**
      * URI de redirecionamento registrada na aplicação.
      * Exemplo: "http://localhost:3000/auth/callback"
      */

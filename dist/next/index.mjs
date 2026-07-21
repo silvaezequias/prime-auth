@@ -101,7 +101,7 @@ function createCallbackHandler(auth, opts = {}) {
         accessToken: tokenSet.access_token,
         refreshToken: tokenSet.refresh_token,
         expiresAt: tokenSet.expires_at
-      }, auth.clientSecret);
+      }, auth.sessionSecret);
       const redirectTo = returnTo ?? successRedirect;
       const res = NextResponse.redirect(new URL(redirectTo, request.url));
       res.cookies.set(auth.cookieName, session, {
@@ -155,7 +155,7 @@ function createMeHandler(auth) {
       log("debug", "[next] /auth/me \u2014 nenhum cookie de sess\xE3o encontrado. Retornando null.");
       return NextResponse.json(null);
     }
-    const session = decodeSession(cookie, auth.clientSecret);
+    const session = decodeSession(cookie, auth.sessionSecret);
     if (!session) {
       log("warn", "[next] /auth/me \u2014 cookie de sess\xE3o presente mas inv\xE1lido. Pode ter sido adulterado.");
       return NextResponse.json(null);
@@ -195,7 +195,7 @@ function createMiddleware(auth, opts = {}) {
       log("warn", `[next:middleware] Acesso negado \u2014 sem cookie de sess\xE3o.`, { pathname });
       return redirectToLogin(request, loginPath);
     }
-    const session = decodeSession(cookie, auth.clientSecret);
+    const session = decodeSession(cookie, auth.sessionSecret);
     if (!session) {
       log("warn", `[next:middleware] Cookie de sess\xE3o inv\xE1lido ou adulterado.`, { pathname });
       return redirectToLogin(request, loginPath);
@@ -235,7 +235,7 @@ async function getUser(auth) {
     log("debug", "[next:server] getUser() \u2014 nenhum cookie de sess\xE3o encontrado.");
     return null;
   }
-  const session = decodeSession(raw, auth.clientSecret);
+  const session = decodeSession(raw, auth.sessionSecret);
   if (!session) {
     log("warn", "[next:server] getUser() \u2014 cookie de sess\xE3o inv\xE1lido. Poss\xEDvel adultera\xE7\xE3o ou clientSecret diferente.");
     return null;
@@ -256,7 +256,7 @@ async function getUser(auth) {
         expiresAt: tokenSet.expires_at
       };
       const isProduction = process.env["NODE_ENV"] === "production";
-      cookieStore.set(auth.cookieName, encodeSession(newSession, auth.clientSecret), {
+      cookieStore.set(auth.cookieName, encodeSession(newSession, auth.sessionSecret), {
         httpOnly: true,
         sameSite: "lax",
         maxAge: auth.cookieMaxAge,
