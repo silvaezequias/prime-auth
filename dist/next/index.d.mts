@@ -3,33 +3,61 @@ import { P as PrimeAuth } from '../client-CB-GK9C8.mjs';
 import { N as NextHandlersOptions, A as AuthenticatedUser, M as MiddlewareOptions } from '../types-BTzC6no2.mjs';
 export { b as AppInfo, C as CompanyUser, P as PrimeAuthConfig, S as SessionData, T as TokenPayload, c as TokenSet, U as UserInfo } from '../types-BTzC6no2.mjs';
 
-/**
- * Ou uma instância `PrimeAuth` fixa (modo tradicional, credenciais de um
- * único client_id/secret vindas do `.env`), ou uma função que resolve a
- * instância certa PARA CADA REQUISIÇÃO — usada em setups multi-tenant onde
- * cada empresa/tenant tem seu próprio client_id/secret guardado em banco.
- * A função recebe a `NextRequest` (para extrair o tenant do subdomínio, por
- * exemplo) e deve devolver o `PrimeAuth` com as credenciais certas para essa
- * requisição específica — inclusive para a troca do code por tokens no
- * callback, que é onde credenciais erradas quebram silenciosamente.
- */
-type AuthSource = PrimeAuth | ((request: NextRequest) => PrimeAuth | Promise<PrimeAuth>);
-declare function createHandlers(authSource: AuthSource, opts?: NextHandlersOptions): {
+declare function createHandlers(auth: PrimeAuth, opts?: NextHandlersOptions): {
     GET: (request: NextRequest) => Promise<NextResponse<unknown>>;
 };
-declare function createLoginHandler(authSource: AuthSource, opts?: NextHandlersOptions): {
+declare function createLoginHandler(auth: PrimeAuth, opts?: NextHandlersOptions): {
     GET: (request: NextRequest) => Promise<NextResponse<unknown>>;
 };
-declare function createCallbackHandler(authSource: AuthSource, opts?: NextHandlersOptions): {
+declare function createCallbackHandler(auth: PrimeAuth, opts?: NextHandlersOptions): {
     GET: (request: NextRequest) => Promise<NextResponse<unknown>>;
 };
-declare function createLogoutHandler(authSource: AuthSource, opts?: {
+declare function createLogoutHandler(auth: PrimeAuth, opts?: {
     redirectTo?: string;
 }): {
-    GET: (request: NextRequest) => Promise<NextResponse<unknown>>;
+    GET: (request: NextRequest) => NextResponse<unknown>;
 };
-declare function createMeHandler(authSource: AuthSource): {
+declare function createMeHandler(auth: PrimeAuth): {
     GET: (request: NextRequest) => Promise<NextResponse<null> | NextResponse<AuthenticatedUser>>;
+};
+
+/**
+ * Handlers Next.js para setups multi-tenant: cada empresa/tenant tem seu
+ * próprio client_id/client_secret, resolvidos EM TEMPO DE REQUISIÇÃO (ex.:
+ * consultando um banco local, populado via webhook do servidor de
+ * autenticação) em vez de um único client_id/secret fixo no `.env`.
+ *
+ * Diferente de `createHandlers` (que aceita só uma instância `PrimeAuth`
+ * fixa), aqui `resolve()` roda uma vez por requisição — em login, callback,
+ * logout e /me — e decide qual `PrimeAuth` usar para ESSA requisição
+ * específica. É o único lugar que precisa saber como identificar o tenant
+ * (ex.: pelo header Host); o resto do fluxo OAuth2 (state, troca de code,
+ * sessão) é implementado aqui de forma direta e sequencial, sem indireção
+ * por cima de `createHandlers` — mais fácil de acompanhar e depurar.
+ */
+interface MultiTenantOptions {
+    /**
+     * Resolve o `PrimeAuth` a usar nesta requisição. Retorne `null` quando
+     * não for possível identificar um tenant, ou quando as credenciais dele
+     * ainda não tiverem chegado — nesse caso `fallback` é usado.
+     */
+    resolve(request: NextRequest): PrimeAuth | null | Promise<PrimeAuth | null>;
+    /** Instância usada quando `resolve()` retorna `null`. */
+    fallback: PrimeAuth;
+    /** Para onde redirecionar após login bem-sucedido. @default '/' */
+    successRedirect?: string;
+    /** Para onde redirecionar em caso de erro (login, callback ou logout). @default '/auth/login' */
+    errorRedirect?: string;
+    /**
+     * Chamado após login bem-sucedido (server-side), já com o `PrimeAuth`
+     * usado nesta requisição — evita o chamador ter que redescobrir o tenant
+     * (ex.: decodificando claims do token) só para saber qual empresa
+     * sincronizar. Retornar `false` impede o redirect padrão.
+     */
+    onSuccess?(user: AuthenticatedUser, auth: PrimeAuth): void | false | Promise<void | false>;
+}
+declare function createMultiTenantHandlers(opts: MultiTenantOptions): {
+    GET: (request: NextRequest) => Promise<Response>;
 };
 
 declare function createMiddleware(auth: PrimeAuth, opts?: MiddlewareOptions): (request: NextRequest) => NextResponse<unknown>;
@@ -37,4 +65,4 @@ declare function createMiddleware(auth: PrimeAuth, opts?: MiddlewareOptions): (r
 declare function getUser(auth: PrimeAuth): Promise<AuthenticatedUser | null>;
 declare function requireUser(auth: PrimeAuth, loginPath?: string): Promise<AuthenticatedUser>;
 
-export { type AuthSource, AuthenticatedUser, MiddlewareOptions, NextHandlersOptions, createCallbackHandler, createHandlers, createLoginHandler, createLogoutHandler, createMeHandler, createMiddleware, getUser, requireUser };
+export { AuthenticatedUser, MiddlewareOptions, type MultiTenantOptions, NextHandlersOptions, createCallbackHandler, createHandlers, createLoginHandler, createLogoutHandler, createMeHandler, createMiddleware, createMultiTenantHandlers, getUser, requireUser };

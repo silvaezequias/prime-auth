@@ -5,7 +5,8 @@ export {
   createLogoutHandler,
   createMeHandler,
 } from './handlers.js'
-export type { AuthSource } from './handlers.js'
+export { createMultiTenantHandlers } from './multi-tenant.js'
+export type { MultiTenantOptions } from './multi-tenant.js'
 export { createMiddleware } from './middleware.js'
 export { getUser, requireUser } from './server.js'
 export type {

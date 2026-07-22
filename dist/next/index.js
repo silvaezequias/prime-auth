@@ -36,6 +36,7 @@ __export(next_exports, {
   createLogoutHandler: () => createLogoutHandler,
   createMeHandler: () => createMeHandler,
   createMiddleware: () => createMiddleware,
+  createMultiTenantHandlers: () => createMultiTenantHandlers,
   getUser: () => getUser,
   requireUser: () => requireUser
 });
@@ -138,14 +139,11 @@ function extractTenantFromHost(hostname) {
 }
 
 // src/next/handlers.ts
-async function resolveAuth(source, request) {
-  return typeof source === "function" ? await source(request) : source;
-}
-function createHandlers(authSource, opts = {}) {
-  const { GET: loginGET } = createLoginHandler(authSource, opts);
-  const { GET: callbackGET } = createCallbackHandler(authSource, opts);
-  const { GET: logoutGET } = createLogoutHandler(authSource);
-  const { GET: meGET } = createMeHandler(authSource);
+function createHandlers(auth, opts = {}) {
+  const { GET: loginGET } = createLoginHandler(auth, opts);
+  const { GET: callbackGET } = createCallbackHandler(auth, opts);
+  const { GET: logoutGET } = createLogoutHandler(auth);
+  const { GET: meGET } = createMeHandler(auth);
   async function GET(request) {
     const action = request.nextUrl.pathname.split("/").at(-1);
     log("debug", `[next] Route handler acionado.`, { action, pathname: request.nextUrl.pathname });
@@ -165,12 +163,11 @@ function createHandlers(authSource, opts = {}) {
   }
   return { GET };
 }
-function createLoginHandler(authSource, opts = {}) {
+function createLoginHandler(auth, opts = {}) {
   async function GET(request) {
     const secure = request.nextUrl.protocol === "https:";
-    const auth = await resolveAuth(authSource, request);
     const returnTo = request.nextUrl.searchParams.get("returnTo");
-    let tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : void 0);
+    let tenant = request.nextUrl.searchParams.get("tenant") ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.headers.get("host") ?? request.nextUrl.hostname) : void 0);
     if (!tenant && opts.autoTenant) {
       try {
         tenant = (await auth.getAppInfo()).tenantSlug ?? void 0;
@@ -190,12 +187,11 @@ function createLoginHandler(authSource, opts = {}) {
   }
   return { GET };
 }
-function createCallbackHandler(authSource, opts = {}) {
+function createCallbackHandler(auth, opts = {}) {
   const successRedirect = opts.successRedirect ?? "/";
   const errorRedirect = opts.errorRedirect ?? "/auth/login";
   async function GET(request) {
     const secure = request.nextUrl.protocol === "https:";
-    const auth = await resolveAuth(authSource, request);
     const { searchParams } = request.nextUrl;
     const code = searchParams.get("code");
     const state = searchParams.get("state");
@@ -271,9 +267,8 @@ function createCallbackHandler(authSource, opts = {}) {
   }
   return { GET };
 }
-function createLogoutHandler(authSource, opts = {}) {
-  async function GET(request) {
-    const auth = await resolveAuth(authSource, request);
+function createLogoutHandler(auth, opts = {}) {
+  function GET(request) {
     const redirectTo = opts.redirectTo ?? "/auth/login";
     log("info", "[next] Usu\xE1rio deslogado. Sess\xE3o encerrada.", { redirectTo });
     const res = import_server.NextResponse.redirect(new URL(redirectTo, request.url));
@@ -282,9 +277,8 @@ function createLogoutHandler(authSource, opts = {}) {
   }
   return { GET };
 }
-function createMeHandler(authSource) {
+function createMeHandler(auth) {
   async function GET(request) {
-    const auth = await resolveAuth(authSource, request);
     log("debug", "[next] /auth/me \u2014 verificando sess\xE3o do usu\xE1rio.");
     const cookie = request.cookies.get(auth.cookieName)?.value;
     if (!cookie) {
@@ -312,8 +306,148 @@ function createMeHandler(authSource) {
   return { GET };
 }
 
-// src/next/middleware.ts
+// src/next/multi-tenant.ts
 var import_server2 = require("next/server");
+async function resolveOrFallback(opts, request) {
+  const resolved = await opts.resolve(request);
+  if (resolved) return resolved;
+  log("debug", "[next:multi-tenant] resolve() n\xE3o encontrou um tenant para esta requisi\xE7\xE3o \u2014 usando fallback.", {
+    pathname: request.nextUrl.pathname
+  });
+  return opts.fallback;
+}
+function isSecure(request) {
+  return request.nextUrl.protocol === "https:";
+}
+function createMultiTenantHandlers(opts) {
+  const successRedirect = opts.successRedirect ?? "/";
+  const errorRedirect = opts.errorRedirect ?? "/auth/login";
+  async function login(request) {
+    const auth = await resolveOrFallback(opts, request);
+    const secure = isSecure(request);
+    const returnTo = request.nextUrl.searchParams.get("returnTo");
+    log("info", "[next:multi-tenant] Iniciando fluxo de login.", {
+      clientId: auth.clientId,
+      tenant: auth.tenant,
+      returnTo: returnTo ?? void 0
+    });
+    const { url, state } = auth.getAuthorizationUrl();
+    const res = import_server2.NextResponse.redirect(url);
+    res.cookies.set("_pa_state", state, { httpOnly: true, sameSite: "lax", maxAge: 600, secure, path: "/" });
+    if (returnTo) {
+      res.cookies.set("_pa_return", returnTo, { httpOnly: true, sameSite: "lax", maxAge: 600, secure, path: "/" });
+    }
+    return res;
+  }
+  async function callback(request) {
+    const auth = await resolveOrFallback(opts, request);
+    const secure = isSecure(request);
+    const { searchParams } = request.nextUrl;
+    const code = searchParams.get("code");
+    const state = searchParams.get("state");
+    const error = searchParams.get("error");
+    const errorDesc = searchParams.get("error_description");
+    log("info", "[next:multi-tenant] Callback OAuth2 recebido.", {
+      clientId: auth.clientId,
+      tenant: auth.tenant,
+      hasCode: !!code,
+      hasState: !!state,
+      error: error ?? void 0
+    });
+    if (error) {
+      log("error", "[next:multi-tenant] Servidor de autentica\xE7\xE3o retornou erro no callback.", { error, description: errorDesc });
+      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url));
+    }
+    if (!code) {
+      log("error", '[next:multi-tenant] Callback recebido sem o par\xE2metro "code".');
+      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=missing_code`, request.url));
+    }
+    const savedState = request.cookies.get("_pa_state")?.value;
+    const returnTo = request.cookies.get("_pa_return")?.value;
+    if (savedState && state !== savedState) {
+      log("warn", "[next:multi-tenant] State CSRF n\xE3o confere.", { expected: savedState, received: state });
+      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=state_mismatch`, request.url));
+    }
+    if (!savedState) {
+      log("warn", "[next:multi-tenant] Cookie de state n\xE3o encontrado. Pode ter expirado (10 min) ou o navegador bloqueou cookies.");
+    }
+    try {
+      log("info", "[next:multi-tenant] Trocando authorization code por tokens...", { clientId: auth.clientId, serverUrl: auth.serverUrl });
+      const tokenSet = await auth.exchangeCode(code);
+      const user = await auth.getUserInfo(tokenSet.access_token);
+      const session = encodeSession({
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token,
+        expiresAt: tokenSet.expires_at
+      }, auth.sessionSecret);
+      const redirectTo = returnTo ?? successRedirect;
+      const res = import_server2.NextResponse.redirect(new URL(redirectTo, request.url));
+      res.cookies.set(auth.cookieName, session, {
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: auth.cookieMaxAge,
+        secure,
+        path: "/"
+      });
+      res.cookies.delete("_pa_state");
+      res.cookies.delete("_pa_return");
+      log("info", "[next:multi-tenant] Login conclu\xEDdo com sucesso.", { user: user.sub, clientId: auth.clientId, redirectTo });
+      if (opts.onSuccess) {
+        const result = await opts.onSuccess(user, auth);
+        if (result === false) return res;
+      }
+      return res;
+    } catch (err) {
+      log("error", "[next:multi-tenant] Falha ao trocar authorization code por tokens. Verifique se o client_id/secret resolvido bate com o do servidor.", {
+        error: String(err),
+        clientId: auth.clientId,
+        serverUrl: auth.serverUrl
+      });
+      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url));
+    }
+  }
+  async function logout(request) {
+    const auth = await resolveOrFallback(opts, request);
+    log("info", "[next:multi-tenant] Usu\xE1rio deslogado.", { clientId: auth.clientId });
+    const res = import_server2.NextResponse.redirect(new URL(errorRedirect, request.url));
+    res.cookies.delete(auth.cookieName);
+    return res;
+  }
+  async function me(request) {
+    const auth = await resolveOrFallback(opts, request);
+    const cookie = request.cookies.get(auth.cookieName)?.value;
+    if (!cookie) return import_server2.NextResponse.json(null);
+    const session = decodeSession(cookie, auth.sessionSecret);
+    if (!session || Date.now() >= session.expiresAt) return import_server2.NextResponse.json(null);
+    try {
+      const user = await auth.getUserInfo(session.accessToken);
+      return import_server2.NextResponse.json(user);
+    } catch (err) {
+      log("error", "[next:multi-tenant] /auth/me \u2014 falha ao buscar dados do usu\xE1rio.", { error: String(err), clientId: auth.clientId });
+      return import_server2.NextResponse.json(null);
+    }
+  }
+  async function GET(request) {
+    const action = request.nextUrl.pathname.split("/").at(-1);
+    switch (action) {
+      case "login":
+        return login(request);
+      case "callback":
+        return callback(request);
+      case "logout":
+        return logout(request);
+      case "me":
+        return me(request);
+      default:
+        log("warn", "[next:multi-tenant] Rota n\xE3o reconhecida no catch-all.", { pathname: request.nextUrl.pathname });
+        return import_server2.NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+  }
+  return { GET };
+}
+
+// src/next/middleware.ts
+var import_server3 = require("next/server");
 function createMiddleware(auth, opts = {}) {
   const loginPath = opts.loginPath ?? "/auth/login";
   const protectedPaths = opts.protectedPaths ?? ["/dashboard"];
@@ -323,7 +457,7 @@ function createMiddleware(auth, opts = {}) {
     const isProtected = protectedPaths.some((pattern) => matchPath(pattern, pathname));
     if (!isProtected) {
       log("debug", `[next:middleware] Rota n\xE3o protegida, passando adiante.`, { pathname });
-      return import_server2.NextResponse.next();
+      return import_server3.NextResponse.next();
     }
     log("debug", `[next:middleware] Rota protegida detectada.`, { pathname });
     const cookie = request.cookies.get(auth.cookieName)?.value;
@@ -347,7 +481,7 @@ function createMiddleware(auth, opts = {}) {
       log("info", `[next:middleware] Sess\xE3o expirada mas refresh token dispon\xEDvel. Deixando passar para renova\xE7\xE3o.`, { pathname });
     }
     log("debug", `[next:middleware] Acesso permitido.`, { pathname });
-    return import_server2.NextResponse.next();
+    return import_server3.NextResponse.next();
   };
 }
 function redirectToLogin(request, loginPath, auth) {
@@ -366,7 +500,7 @@ function redirectToLogin(request, loginPath, auth) {
   const loginUrl = new URL(loginPath, base);
   loginUrl.searchParams.set("returnTo", request.nextUrl.pathname);
   log("info", `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString(), tenant: tenant ?? void 0 });
-  return import_server2.NextResponse.redirect(loginUrl);
+  return import_server3.NextResponse.redirect(loginUrl);
 }
 function matchPath(pattern, pathname) {
   if (pattern === pathname) return true;
@@ -460,6 +594,7 @@ async function isSecureRequest() {
   createLogoutHandler,
   createMeHandler,
   createMiddleware,
+  createMultiTenantHandlers,
   getUser,
   requireUser
 });

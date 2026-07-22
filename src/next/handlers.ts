@@ -6,31 +6,18 @@ import { encodeSession, decodeSession } from '../session.js'
 import { extractTenantFromHost } from '../tenant.js'
 import { log } from '../logger.js'
 
-// ─── Fonte de credenciais ───────────────────────────────────────────────────────
-
-/**
- * Ou uma instância `PrimeAuth` fixa (modo tradicional, credenciais de um
- * único client_id/secret vindas do `.env`), ou uma função que resolve a
- * instância certa PARA CADA REQUISIÇÃO — usada em setups multi-tenant onde
- * cada empresa/tenant tem seu próprio client_id/secret guardado em banco.
- * A função recebe a `NextRequest` (para extrair o tenant do subdomínio, por
- * exemplo) e deve devolver o `PrimeAuth` com as credenciais certas para essa
- * requisição específica — inclusive para a troca do code por tokens no
- * callback, que é onde credenciais erradas quebram silenciosamente.
- */
-export type AuthSource = PrimeAuth | ((request: NextRequest) => PrimeAuth | Promise<PrimeAuth>)
-
-async function resolveAuth(source: AuthSource, request: NextRequest): Promise<PrimeAuth> {
-  return typeof source === 'function' ? await source(request) : source
-}
-
 // ─── Catch-all handler ────────────────────────────────────────────────────────
+//
+// Para uma única aplicação (um client_id/secret fixo, vindo do .env). Para
+// multi-tenant (client_id/secret por empresa, resolvido em tempo de
+// requisição), use `createMultiTenantHandlers` em vez desta função — ver
+// multi-tenant.js.
 
-export function createHandlers(authSource: AuthSource, opts: NextHandlersOptions = {}) {
-  const { GET: loginGET }    = createLoginHandler(authSource, opts)
-  const { GET: callbackGET } = createCallbackHandler(authSource, opts)
-  const { GET: logoutGET }   = createLogoutHandler(authSource)
-  const { GET: meGET }       = createMeHandler(authSource)
+export function createHandlers(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
+  const { GET: loginGET }    = createLoginHandler(auth, opts)
+  const { GET: callbackGET } = createCallbackHandler(auth, opts)
+  const { GET: logoutGET }   = createLogoutHandler(auth)
+  const { GET: meGET }       = createMeHandler(auth)
 
   async function GET(request: NextRequest) {
     const action = request.nextUrl.pathname.split('/').at(-1)
@@ -51,18 +38,17 @@ export function createHandlers(authSource: AuthSource, opts: NextHandlersOptions
 
 // ─── Login ────────────────────────────────────────────────────────────────────
 
-export function createLoginHandler(authSource: AuthSource, opts: NextHandlersOptions = {}) {
+export function createLoginHandler(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
   async function GET(request: NextRequest) {
     // Baseado no protocolo real da requisição, não em NODE_ENV — "next dev"
     // não força NODE_ENV=development se já vier definido de fora (ex.: env
     // herdada do shell), o que faria o cookie sair Secure e ser
     // silenciosamente descartado pelo navegador em http://localhost.
     const secure = request.nextUrl.protocol === 'https:'
-    const auth = await resolveAuth(authSource, request)
 
     const returnTo = request.nextUrl.searchParams.get('returnTo')
     let tenant = request.nextUrl.searchParams.get('tenant')
-      ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.nextUrl.hostname) : undefined)
+      ?? (opts.tenantFromSubdomain ? extractTenantFromHost(request.headers.get('host') ?? request.nextUrl.hostname) : undefined)
 
     if (!tenant && opts.autoTenant) {
       try {
@@ -91,18 +77,13 @@ export function createLoginHandler(authSource: AuthSource, opts: NextHandlersOpt
 
 // ─── Callback ─────────────────────────────────────────────────────────────────
 
-export function createCallbackHandler(authSource: AuthSource, opts: NextHandlersOptions = {}) {
+export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions = {}) {
   const successRedirect = opts.successRedirect ?? '/'
   const errorRedirect   = opts.errorRedirect   ?? '/auth/login'
 
   async function GET(request: NextRequest) {
     // Baseado no protocolo real da requisição — ver nota em createLoginHandler.
     const secure = request.nextUrl.protocol === 'https:'
-
-    // Resolvido por requisição de propósito: é aqui que a troca do code por
-    // tokens acontece, e é o ponto onde usar client_id/secret errados
-    // (ex.: sempre o do .env, ignorando o tenant real) quebra silenciosamente.
-    const auth = await resolveAuth(authSource, request)
 
     const { searchParams } = request.nextUrl
     const code      = searchParams.get('code')
@@ -193,9 +174,8 @@ export function createCallbackHandler(authSource: AuthSource, opts: NextHandlers
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
 
-export function createLogoutHandler(authSource: AuthSource, opts: { redirectTo?: string } = {}) {
-  async function GET(request: NextRequest) {
-    const auth = await resolveAuth(authSource, request)
+export function createLogoutHandler(auth: PrimeAuth, opts: { redirectTo?: string } = {}) {
+  function GET(request: NextRequest) {
     const redirectTo = opts.redirectTo ?? '/auth/login'
     log('info', '[next] Usuário deslogado. Sessão encerrada.', { redirectTo })
     const res = NextResponse.redirect(new URL(redirectTo, request.url))
@@ -207,9 +187,8 @@ export function createLogoutHandler(authSource: AuthSource, opts: { redirectTo?:
 
 // ─── Me ───────────────────────────────────────────────────────────────────────
 
-export function createMeHandler(authSource: AuthSource) {
+export function createMeHandler(auth: PrimeAuth) {
   async function GET(request: NextRequest) {
-    const auth = await resolveAuth(authSource, request)
     log('debug', '[next] /auth/me — verificando sessão do usuário.')
 
     const cookie = request.cookies.get(auth.cookieName)?.value
