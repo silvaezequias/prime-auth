@@ -177,7 +177,20 @@ function createMeHandler(auth) {
 }
 
 // src/next/multi-tenant.ts
+import { createHash } from "crypto";
 import { NextResponse as NextResponse2 } from "next/server";
+function secretFingerprint(secret) {
+  return createHash("sha256").update(secret).digest("hex").slice(0, 8);
+}
+function authDebugInfo(auth) {
+  return {
+    clientId: auth.clientId,
+    tenant: auth.tenant,
+    redirectUri: auth.redirectUri,
+    serverUrl: auth.serverUrl,
+    clientSecretFingerprint: secretFingerprint(auth.clientSecret)
+  };
+}
 async function resolveOrFallback(opts, request) {
   const resolved = await opts.resolve(request);
   if (resolved) return resolved;
@@ -197,8 +210,7 @@ function createMultiTenantHandlers(opts) {
     const secure = isSecure(request);
     const returnTo = request.nextUrl.searchParams.get("returnTo");
     log("info", "[next:multi-tenant] Iniciando fluxo de login.", {
-      clientId: auth.clientId,
-      tenant: auth.tenant,
+      ...authDebugInfo(auth),
       returnTo: returnTo ?? void 0
     });
     const { url, state } = auth.getAuthorizationUrl();
@@ -218,8 +230,7 @@ function createMultiTenantHandlers(opts) {
     const error = searchParams.get("error");
     const errorDesc = searchParams.get("error_description");
     log("info", "[next:multi-tenant] Callback OAuth2 recebido.", {
-      clientId: auth.clientId,
-      tenant: auth.tenant,
+      ...authDebugInfo(auth),
       hasCode: !!code,
       hasState: !!state,
       error: error ?? void 0
@@ -242,8 +253,15 @@ function createMultiTenantHandlers(opts) {
       log("warn", "[next:multi-tenant] Cookie de state n\xE3o encontrado. Pode ter expirado (10 min) ou o navegador bloqueou cookies.");
     }
     try {
-      log("info", "[next:multi-tenant] Trocando authorization code por tokens...", { clientId: auth.clientId, serverUrl: auth.serverUrl });
+      log("info", "[next:multi-tenant] Trocando authorization code por tokens...", authDebugInfo(auth));
       const tokenSet = await auth.exchangeCode(code);
+      log("info", "[next:multi-tenant] Code trocado com sucesso \u2014 token recebido.", {
+        clientId: auth.clientId,
+        tokenType: tokenSet.token_type,
+        expiresIn: tokenSet.expires_in,
+        hasRefreshToken: !!tokenSet.refresh_token,
+        scope: tokenSet.scope
+      });
       const user = await auth.getUserInfo(tokenSet.access_token);
       const session = encodeSession({
         accessToken: tokenSet.access_token,
@@ -268,10 +286,9 @@ function createMultiTenantHandlers(opts) {
       }
       return res;
     } catch (err) {
-      log("error", "[next:multi-tenant] Falha ao trocar authorization code por tokens. Verifique se o client_id/secret resolvido bate com o do servidor.", {
+      log("error", "[next:multi-tenant] Falha ao trocar authorization code por tokens. Se o erro for invalid_client, o clientSecretFingerprint abaixo n\xE3o bate com o que o servidor tem cadastrado para este clientId \u2014 geralmente porque o secret foi rotacionado no servidor (ex.: bot\xE3o de sincronizar) e o webhook com o novo valor n\xE3o chegou at\xE9 aqui.", {
         error: String(err),
-        clientId: auth.clientId,
-        serverUrl: auth.serverUrl
+        ...authDebugInfo(auth)
       });
       return NextResponse2.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url));
     }

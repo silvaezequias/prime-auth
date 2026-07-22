@@ -1,9 +1,32 @@
+import { createHash } from 'node:crypto'
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
 import { PrimeAuth } from '../client.js'
 import { AuthenticatedUser } from '../types.js'
 import { encodeSession, decodeSession } from '../session.js'
 import { log } from '../logger.js'
+
+/**
+ * "Impressão digital" curta e não-reversível do client_secret em uso —
+ * NUNCA o valor bruto. Serve só para comparar, olhando os logs, se a
+ * instância resolvida aqui está usando o mesmo secret que o servidor tem
+ * cadastrado para o client_id (ex.: depois de uma rotação de secret que não
+ * chegou via webhook, o fingerprint muda e aparece nos logs — sem precisar
+ * consultar os dois bancos manualmente pra descobrir).
+ */
+function secretFingerprint(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 8)
+}
+
+function authDebugInfo(auth: PrimeAuth) {
+  return {
+    clientId: auth.clientId,
+    tenant: auth.tenant,
+    redirectUri: auth.redirectUri,
+    serverUrl: auth.serverUrl,
+    clientSecretFingerprint: secretFingerprint(auth.clientSecret),
+  }
+}
 
 /**
  * Handlers Next.js para setups multi-tenant: cada empresa/tenant tem seu
@@ -65,8 +88,7 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
     const returnTo = request.nextUrl.searchParams.get('returnTo')
 
     log('info', '[next:multi-tenant] Iniciando fluxo de login.', {
-      clientId: auth.clientId,
-      tenant: auth.tenant,
+      ...authDebugInfo(auth),
       returnTo: returnTo ?? undefined,
     })
 
@@ -92,8 +114,7 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
     const errorDesc = searchParams.get('error_description')
 
     log('info', '[next:multi-tenant] Callback OAuth2 recebido.', {
-      clientId: auth.clientId,
-      tenant: auth.tenant,
+      ...authDebugInfo(auth),
       hasCode: !!code,
       hasState: !!state,
       error: error ?? undefined,
@@ -121,8 +142,15 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
     }
 
     try {
-      log('info', '[next:multi-tenant] Trocando authorization code por tokens...', { clientId: auth.clientId, serverUrl: auth.serverUrl })
+      log('info', '[next:multi-tenant] Trocando authorization code por tokens...', authDebugInfo(auth))
       const tokenSet = await auth.exchangeCode(code)
+      log('info', '[next:multi-tenant] Code trocado com sucesso — token recebido.', {
+        clientId: auth.clientId,
+        tokenType: tokenSet.token_type,
+        expiresIn: tokenSet.expires_in,
+        hasRefreshToken: !!tokenSet.refresh_token,
+        scope: tokenSet.scope,
+      })
 
       const user = await auth.getUserInfo(tokenSet.access_token)
 
@@ -150,10 +178,9 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
 
       return res
     } catch (err) {
-      log('error', '[next:multi-tenant] Falha ao trocar authorization code por tokens. Verifique se o client_id/secret resolvido bate com o do servidor.', {
+      log('error', '[next:multi-tenant] Falha ao trocar authorization code por tokens. Se o erro for invalid_client, o clientSecretFingerprint abaixo não bate com o que o servidor tem cadastrado para este clientId — geralmente porque o secret foi rotacionado no servidor (ex.: botão de sincronizar) e o webhook com o novo valor não chegou até aqui.', {
         error: String(err),
-        clientId: auth.clientId,
-        serverUrl: auth.serverUrl,
+        ...authDebugInfo(auth),
       })
       return NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url))
     }
