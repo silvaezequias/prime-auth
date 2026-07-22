@@ -61,7 +61,14 @@ export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) 
  * subdomínio. Sem tenant detectável, cai no comportamento antigo.
  */
 function redirectToLogin(request: NextRequest, loginPath: string, auth: PrimeAuth) {
-  const tenant = extractTenantFromHost(request.nextUrl.hostname)
+  // Em Proxy/Middleware, `request.nextUrl.hostname` nem sempre reflete o
+  // header Host real da requisição (observado no Next.js 16 — ali ele pode
+  // reportar o host interno do servidor em vez do host que o cliente usou).
+  // O header Host bruto é confiável nesse contexto, então é ele que usamos
+  // aqui — diferente do login/callback (Route Handlers), onde `nextUrl`
+  // já reflete o host corretamente.
+  const hostHeader = request.headers.get('host') ?? request.nextUrl.hostname
+  const tenant = extractTenantFromHost(hostHeader)
 
   let base = request.url
   if (tenant) {

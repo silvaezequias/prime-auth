@@ -222,7 +222,8 @@ function createMiddleware(auth, opts = {}) {
   };
 }
 function redirectToLogin(request, loginPath, auth) {
-  const tenant = extractTenantFromHost(request.nextUrl.hostname);
+  const hostHeader = request.headers.get("host") ?? request.nextUrl.hostname;
+  const tenant = extractTenantFromHost(hostHeader);
   let base = request.url;
   if (tenant) {
     try {
