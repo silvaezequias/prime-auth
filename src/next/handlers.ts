@@ -4,6 +4,7 @@ import { PrimeAuth } from '../client.js'
 import { NextHandlersOptions, AuthenticatedUser } from '../types.js'
 import { encodeSession, decodeSession } from '../session.js'
 import { extractTenantFromHost } from '../tenant.js'
+import { resolveRequestUrl } from './request-url.js'
 import { log } from '../logger.js'
 
 // ─── Catch-all handler ────────────────────────────────────────────────────────
@@ -98,12 +99,12 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
         error,
         description: errorDesc,
       })
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=${encodeURIComponent(error)}`))
     }
 
     if (!code) {
       log('error', '[next] Callback recebido sem o parâmetro "code". O servidor deveria ter enviado o authorization code.')
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=missing_code`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=missing_code`))
     }
 
     const savedState = request.cookies.get('_pa_state')?.value
@@ -114,7 +115,7 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
         expected: savedState,
         received: state,
       })
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=state_mismatch`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=state_mismatch`))
     }
 
     if (!savedState) {
@@ -136,7 +137,7 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
       }, auth.sessionSecret)
 
       const redirectTo = returnTo ?? successRedirect
-      const res = NextResponse.redirect(new URL(redirectTo, request.url))
+      const res = NextResponse.redirect(resolveRequestUrl(request, redirectTo))
 
       res.cookies.set(auth.cookieName, session, {
         httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure, path: '/',
@@ -165,7 +166,7 @@ export function createCallbackHandler(auth: PrimeAuth, opts: NextHandlersOptions
         error: String(err),
         serverUrl: auth.serverUrl,
       })
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=callback_failed`))
     }
   }
 
@@ -178,7 +179,7 @@ export function createLogoutHandler(auth: PrimeAuth, opts: { redirectTo?: string
   function GET(request: NextRequest) {
     const redirectTo = opts.redirectTo ?? '/auth/login'
     log('info', '[next] Usuário deslogado. Sessão encerrada.', { redirectTo })
-    const res = NextResponse.redirect(new URL(redirectTo, request.url))
+    const res = NextResponse.redirect(resolveRequestUrl(request, redirectTo))
     res.cookies.delete(auth.cookieName)
     return res
   }
