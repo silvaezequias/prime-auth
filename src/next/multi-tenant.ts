@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { PrimeAuth } from '../client.js'
 import { AuthenticatedUser } from '../types.js'
 import { encodeSession, decodeSession } from '../session.js'
+import { resolveRequestUrl } from './request-url.js'
 import { log } from '../logger.js'
 
 /**
@@ -122,12 +123,12 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
 
     if (error) {
       log('error', '[next:multi-tenant] Servidor de autenticação retornou erro no callback.', { error, description: errorDesc })
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=${encodeURIComponent(error)}`))
     }
 
     if (!code) {
       log('error', '[next:multi-tenant] Callback recebido sem o parâmetro "code".')
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=missing_code`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=missing_code`))
     }
 
     const savedState = request.cookies.get('_pa_state')?.value
@@ -135,7 +136,7 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
 
     if (savedState && state !== savedState) {
       log('warn', '[next:multi-tenant] State CSRF não confere.', { expected: savedState, received: state })
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=state_mismatch`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=state_mismatch`))
     }
     if (!savedState) {
       log('warn', '[next:multi-tenant] Cookie de state não encontrado. Pode ter expirado (10 min) ou o navegador bloqueou cookies.')
@@ -161,7 +162,7 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
       }, auth.sessionSecret)
 
       const redirectTo = returnTo ?? successRedirect
-      const res = NextResponse.redirect(new URL(redirectTo, request.url))
+      const res = NextResponse.redirect(resolveRequestUrl(request, redirectTo))
 
       res.cookies.set(auth.cookieName, session, {
         httpOnly: true, sameSite: 'lax', maxAge: auth.cookieMaxAge, secure, path: '/',
@@ -182,14 +183,14 @@ export function createMultiTenantHandlers(opts: MultiTenantOptions) {
         error: String(err),
         ...authDebugInfo(auth),
       })
-      return NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url))
+      return NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=callback_failed`))
     }
   }
 
   async function logout(request: NextRequest): Promise<Response> {
     const auth = await resolveOrFallback(opts, request)
     log('info', '[next:multi-tenant] Usuário deslogado.', { clientId: auth.clientId })
-    const res = NextResponse.redirect(new URL(errorRedirect, request.url))
+    const res = NextResponse.redirect(resolveRequestUrl(request, errorRedirect))
     res.cookies.delete(auth.cookieName)
     return res
   }

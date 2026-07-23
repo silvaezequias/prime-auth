@@ -4,6 +4,7 @@ import { PrimeAuth } from '../client.js'
 import { MiddlewareOptions } from '../types.js'
 import { decodeSession } from '../session.js'
 import { extractTenantFromHost } from '../tenant.js'
+import { resolveRequestUrl } from './request-url.js'
 import { log } from '../logger.js'
 
 export function createMiddleware(auth: PrimeAuth, opts: MiddlewareOptions = {}) {
@@ -70,18 +71,20 @@ function redirectToLogin(request: NextRequest, loginPath: string, auth: PrimeAut
   const hostHeader = request.headers.get('host') ?? request.nextUrl.hostname
   const tenant = extractTenantFromHost(hostHeader)
 
-  let base = request.url
+  let loginUrl: URL
   if (tenant) {
     try {
       const appUrl = new URL(auth.redirectUri)
       appUrl.hostname = `${tenant}.${appUrl.hostname}`
-      base = appUrl.toString()
+      loginUrl = new URL(loginPath, appUrl)
     } catch (err) {
       log('warn', '[next:middleware] redirectUri inválido ao montar URL de login com tenant. Usando o host da requisição.', { error: String(err) })
+      loginUrl = resolveRequestUrl(request, loginPath)
     }
+  } else {
+    loginUrl = resolveRequestUrl(request, loginPath)
   }
 
-  const loginUrl = new URL(loginPath, base)
   loginUrl.searchParams.set('returnTo', request.nextUrl.pathname)
   log('info', `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString(), tenant: tenant ?? undefined })
   return NextResponse.redirect(loginUrl)

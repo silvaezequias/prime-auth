@@ -138,6 +138,13 @@ function extractTenantFromHost(hostname) {
   return candidate;
 }
 
+// src/next/request-url.ts
+function resolveRequestUrl(request, path) {
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  const protocol = request.nextUrl.protocol;
+  return new URL(path, `${protocol}//${host}`);
+}
+
 // src/next/handlers.ts
 function createHandlers(auth, opts = {}) {
   const { GET: loginGET } = createLoginHandler(auth, opts);
@@ -203,11 +210,11 @@ function createCallbackHandler(auth, opts = {}) {
         error,
         description: errorDesc
       });
-      return import_server.NextResponse.redirect(new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url));
+      return import_server.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=${encodeURIComponent(error)}`));
     }
     if (!code) {
       log("error", '[next] Callback recebido sem o par\xE2metro "code". O servidor deveria ter enviado o authorization code.');
-      return import_server.NextResponse.redirect(new URL(`${errorRedirect}?error=missing_code`, request.url));
+      return import_server.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=missing_code`));
     }
     const savedState = request.cookies.get("_pa_state")?.value;
     const returnTo = request.cookies.get("_pa_return")?.value;
@@ -216,7 +223,7 @@ function createCallbackHandler(auth, opts = {}) {
         expected: savedState,
         received: state
       });
-      return import_server.NextResponse.redirect(new URL(`${errorRedirect}?error=state_mismatch`, request.url));
+      return import_server.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=state_mismatch`));
     }
     if (!savedState) {
       log("warn", "[next] Cookie de state n\xE3o encontrado. Pode ter expirado (10 min) ou o navegador bloqueou cookies.");
@@ -233,7 +240,7 @@ function createCallbackHandler(auth, opts = {}) {
         expiresAt: tokenSet.expires_at
       }, auth.sessionSecret);
       const redirectTo = returnTo ?? successRedirect;
-      const res = import_server.NextResponse.redirect(new URL(redirectTo, request.url));
+      const res = import_server.NextResponse.redirect(resolveRequestUrl(request, redirectTo));
       res.cookies.set(auth.cookieName, session, {
         httpOnly: true,
         sameSite: "lax",
@@ -262,7 +269,7 @@ function createCallbackHandler(auth, opts = {}) {
         error: String(err),
         serverUrl: auth.serverUrl
       });
-      return import_server.NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url));
+      return import_server.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=callback_failed`));
     }
   }
   return { GET };
@@ -271,7 +278,7 @@ function createLogoutHandler(auth, opts = {}) {
   function GET(request) {
     const redirectTo = opts.redirectTo ?? "/auth/login";
     log("info", "[next] Usu\xE1rio deslogado. Sess\xE3o encerrada.", { redirectTo });
-    const res = import_server.NextResponse.redirect(new URL(redirectTo, request.url));
+    const res = import_server.NextResponse.redirect(resolveRequestUrl(request, redirectTo));
     res.cookies.delete(auth.cookieName);
     return res;
   }
@@ -367,17 +374,17 @@ function createMultiTenantHandlers(opts) {
     });
     if (error) {
       log("error", "[next:multi-tenant] Servidor de autentica\xE7\xE3o retornou erro no callback.", { error, description: errorDesc });
-      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=${encodeURIComponent(error)}`, request.url));
+      return import_server2.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=${encodeURIComponent(error)}`));
     }
     if (!code) {
       log("error", '[next:multi-tenant] Callback recebido sem o par\xE2metro "code".');
-      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=missing_code`, request.url));
+      return import_server2.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=missing_code`));
     }
     const savedState = request.cookies.get("_pa_state")?.value;
     const returnTo = request.cookies.get("_pa_return")?.value;
     if (savedState && state !== savedState) {
       log("warn", "[next:multi-tenant] State CSRF n\xE3o confere.", { expected: savedState, received: state });
-      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=state_mismatch`, request.url));
+      return import_server2.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=state_mismatch`));
     }
     if (!savedState) {
       log("warn", "[next:multi-tenant] Cookie de state n\xE3o encontrado. Pode ter expirado (10 min) ou o navegador bloqueou cookies.");
@@ -399,7 +406,7 @@ function createMultiTenantHandlers(opts) {
         expiresAt: tokenSet.expires_at
       }, auth.sessionSecret);
       const redirectTo = returnTo ?? successRedirect;
-      const res = import_server2.NextResponse.redirect(new URL(redirectTo, request.url));
+      const res = import_server2.NextResponse.redirect(resolveRequestUrl(request, redirectTo));
       res.cookies.set(auth.cookieName, session, {
         httpOnly: true,
         sameSite: "lax",
@@ -420,13 +427,13 @@ function createMultiTenantHandlers(opts) {
         error: String(err),
         ...authDebugInfo(auth)
       });
-      return import_server2.NextResponse.redirect(new URL(`${errorRedirect}?error=callback_failed`, request.url));
+      return import_server2.NextResponse.redirect(resolveRequestUrl(request, `${errorRedirect}?error=callback_failed`));
     }
   }
   async function logout(request) {
     const auth = await resolveOrFallback(opts, request);
     log("info", "[next:multi-tenant] Usu\xE1rio deslogado.", { clientId: auth.clientId });
-    const res = import_server2.NextResponse.redirect(new URL(errorRedirect, request.url));
+    const res = import_server2.NextResponse.redirect(resolveRequestUrl(request, errorRedirect));
     res.cookies.delete(auth.cookieName);
     return res;
   }
@@ -504,17 +511,19 @@ function createMiddleware(auth, opts = {}) {
 function redirectToLogin(request, loginPath, auth) {
   const hostHeader = request.headers.get("host") ?? request.nextUrl.hostname;
   const tenant = extractTenantFromHost(hostHeader);
-  let base = request.url;
+  let loginUrl;
   if (tenant) {
     try {
       const appUrl = new URL(auth.redirectUri);
       appUrl.hostname = `${tenant}.${appUrl.hostname}`;
-      base = appUrl.toString();
+      loginUrl = new URL(loginPath, appUrl);
     } catch (err) {
       log("warn", "[next:middleware] redirectUri inv\xE1lido ao montar URL de login com tenant. Usando o host da requisi\xE7\xE3o.", { error: String(err) });
+      loginUrl = resolveRequestUrl(request, loginPath);
     }
+  } else {
+    loginUrl = resolveRequestUrl(request, loginPath);
   }
-  const loginUrl = new URL(loginPath, base);
   loginUrl.searchParams.set("returnTo", request.nextUrl.pathname);
   log("info", `[next:middleware] Redirecionando para login.`, { loginUrl: loginUrl.toString(), tenant: tenant ?? void 0 });
   return import_server3.NextResponse.redirect(loginUrl);
